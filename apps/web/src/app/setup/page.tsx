@@ -73,6 +73,7 @@ export default function SetupPage() {
   const [gitlabError, setGitlabError] = useState("");
   const [bitbucketEnabled, setBitbucketEnabled] = useState(false);
   const [bitbucketToken, setBitbucketToken] = useState("");
+  const [bitbucketWorkspace, setBitbucketWorkspace] = useState("");
   const [bitbucketUser, setBitbucketUser] = useState<{ login: string; name: string } | null>(null);
   const [bitbucketValidated, setBitbucketValidated] = useState(false);
   const [bitbucketError, setBitbucketError] = useState("");
@@ -219,7 +220,10 @@ export default function SetupPage() {
         fetches.push(api.listUserRepos(githubToken || ""));
       if (gitlabEnabled && gitlabToken)
         fetches.push(api.listGitlabRepos(gitlabToken, gitlabHost || undefined));
-      if (bitbucketEnabled && bitbucketToken) fetches.push(api.listBitbucketRepos(bitbucketToken));
+      if (bitbucketEnabled && bitbucketToken)
+        fetches.push(
+          api.listBitbucketRepos(bitbucketToken, bitbucketWorkspace.trim() || undefined),
+        );
       if (codecommitEnabled && awsAccessKeyId && awsSecretAccessKey)
         fetches.push(
           api.listCodecommitRepos({
@@ -338,7 +342,7 @@ export default function SetupPage() {
     setLoading(true);
     setBitbucketError("");
     try {
-      const res = await api.validateBitbucketToken(token);
+      const res = await api.validateBitbucketToken(token, bitbucketWorkspace.trim() || undefined);
       if (res.valid && res.user) {
         setBitbucketUser(res.user);
         setBitbucketValidated(true);
@@ -1107,6 +1111,26 @@ export default function SetupPage() {
                   <p className="text-text-muted text-sm">
                     Use a repository, project, or workspace access token.
                   </p>
+                  <div>
+                    <label className="block text-sm text-text-muted mb-1.5">Workspace</label>
+                    <input
+                      type="text"
+                      value={bitbucketWorkspace}
+                      onChange={(e) => {
+                        setBitbucketWorkspace(e.target.value);
+                        setBitbucketValidated(false);
+                        setBitbucketError("");
+                      }}
+                      placeholder="my-workspace"
+                      className="w-full px-3 py-2 bg-bg border border-border rounded-md text-text text-sm focus:outline-none focus:border-accent"
+                    />
+                    <p className="text-text-muted text-xs mt-1.5">
+                      The slug from your Bitbucket URL (bitbucket.org/
+                      <span className="text-text">workspace</span>
+                      /repo). Required for repository, project and workspace access tokens — they
+                      authenticate as a resource, so there is no user account to look up.
+                    </p>
+                  </div>
                   <div>
                     <label className="block text-sm text-text-muted mb-1.5">Bitbucket Token</label>
                     <input

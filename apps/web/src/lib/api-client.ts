@@ -386,13 +386,13 @@ export const api = {
       body: JSON.stringify({ token, host }),
     }),
 
-  validateBitbucketToken: (token: string) =>
+  validateBitbucketToken: (token: string, workspace?: string) =>
     request<{ valid: boolean; error?: string; user?: { login: string; name: string } }>(
       "/api/setup/validate/bitbucket-token",
-      { method: "POST", body: JSON.stringify({ token }) },
+      { method: "POST", body: JSON.stringify({ token, workspace }) },
     ),
 
-  listBitbucketRepos: (token: string) =>
+  listBitbucketRepos: (token: string, workspace?: string) =>
     request<{
       repos: Array<{
         fullName: string;
@@ -407,7 +407,7 @@ export const api = {
       error?: string;
     }>("/api/setup/repos/bitbucket", {
       method: "POST",
-      body: JSON.stringify({ token }),
+      body: JSON.stringify({ token, workspace }),
     }),
 
   validateAwsCredentials: (creds: {

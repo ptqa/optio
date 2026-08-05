@@ -19,8 +19,11 @@ const gitlabTokenSchema = z
   })
   .describe("GitLab token + optional host");
 const bitbucketTokenSchema = z
-  .object({ token: z.string().min(1) })
-  .describe("Bitbucket Cloud access token");
+  .object({
+    token: z.string().min(1),
+    workspace: z.string().trim().min(1).optional(),
+  })
+  .describe("Bitbucket Cloud access token + workspace slug");
 const awsCredentialsSchema = z
   .object({
     accessKeyId: z.string().min(1),
@@ -91,6 +94,39 @@ const requireAdminWhenAuthenticated = async (req: FastifyRequest, reply: Fastify
 function sanitizeError(err: unknown): string {
   if (process.env.NODE_ENV !== "production") return String(err);
   return "An unexpected error occurred";
+}
+
+const BITBUCKET_API = "https://api.bitbucket.org/2.0";
+
+/**
+ * Turn a Bitbucket HTTP status into something actionable.
+ *
+ * Bitbucket Cloud access tokens (repository-, project- and workspace-scoped)
+ * authenticate as a *resource*, not a user, so they have no user context:
+ * `/2.0/user` answers 403 for them. Atlassian additionally retired the
+ * user-context listing endpoints — `/2.0/workspaces` and
+ * `/2.0/repositories?role=…` now answer 410 Gone for every token type. Only
+ * workspace-scoped paths such as `/2.0/workspaces/{slug}` and
+ * `/2.0/repositories/{slug}` work across all of them, so a bare status code is
+ * rarely enough for a user to self-diagnose.
+ */
+function describeBitbucketFailure(status: number, workspace?: string): string {
+  if (status === 401)
+    return "Bitbucket rejected the token (401) — it is invalid, expired or revoked.";
+  if (status === 403) {
+    return workspace
+      ? `Bitbucket denied access to workspace "${workspace}" (403) — the token is valid but lacks a repository/workspace read scope, or belongs to a different workspace.`
+      : "Bitbucket returned 403 for /user — repository, project and workspace access tokens have no user context. Provide the workspace slug so it can be verified directly.";
+  }
+  if (status === 404) {
+    return workspace
+      ? `Bitbucket workspace "${workspace}" not found (404) — check the slug (it is the name in the URL, not the display name).`
+      : "Bitbucket returned 404.";
+  }
+  if (status === 410) {
+    return "Bitbucket returned 410 Gone — this endpoint was retired by Atlassian. Optio needs a workspace slug to use a supported endpoint.";
+  }
+  return `Bitbucket returned ${status}`;
 }
 
 export async function setupRoutes(rawApp: FastifyInstance) {
@@ -277,11 +313,41 @@ export async function setupRoutes(rawApp: FastifyInstance) {
       },
     },
     async (req, reply) => {
-      const { token } = req.body;
+      const { token, workspace } = req.body;
       const headers = { Authorization: `Bearer ${token}`, "User-Agent": "Optio" };
 
       try {
-        const res = await fetch("https://api.bitbucket.org/2.0/user", { headers });
+        // A workspace-scoped probe is the only one that works for every token
+        // type, so prefer it whenever a slug is supplied. See
+        // describeBitbucketFailure for why /user and the listing endpoints
+        // can't be relied on.
+        if (workspace) {
+          const res = await fetch(`${BITBUCKET_API}/workspaces/${encodeURIComponent(workspace)}`, {
+            headers,
+          });
+          if (res.ok) {
+            const ws = (await res.json()) as { slug?: string; name?: string };
+            return reply.send({
+              valid: true,
+              user: {
+                login: ws.slug ?? workspace,
+                name: ws.name ?? `Bitbucket workspace ${workspace}`,
+              },
+            });
+          }
+          app.log.warn(
+            { status: res.status, workspace },
+            "Bitbucket workspace validation rejected the token",
+          );
+          return reply.send({
+            valid: false,
+            error: describeBitbucketFailure(res.status, workspace),
+          });
+        }
+
+        // No workspace given: only a user-context token (e.g. an OAuth access
+        // token with the account scope) can be verified.
+        const res = await fetch(`${BITBUCKET_API}/user`, { headers });
         if (res.ok) {
           const user = (await res.json()) as {
             nickname?: string;
@@ -295,22 +361,8 @@ export async function setupRoutes(rawApp: FastifyInstance) {
           });
         }
 
-        // Repository- and workspace-scoped tokens cannot call /user and return 401/403
-        // even when valid for repository access, so probe a member repository before rejecting them.
-        if (res.status === 401 || res.status === 403) {
-          const repoRes = await fetch(
-            "https://api.bitbucket.org/2.0/repositories?role=member&pagelen=1",
-            { headers },
-          );
-          if (repoRes.ok) {
-            return reply.send({
-              valid: true,
-              user: { login: "bitbucket", name: "Bitbucket access token" },
-            });
-          }
-        }
-
-        return reply.send({ valid: false, error: `Bitbucket returned ${res.status}` });
+        app.log.warn({ status: res.status }, "Bitbucket /user validation rejected the token");
+        return reply.send({ valid: false, error: describeBitbucketFailure(res.status) });
       } catch (err) {
         app.log.error(err, "Bitbucket token validation failed");
         return reply.send({ valid: false, error: sanitizeError(err) });
@@ -719,14 +771,26 @@ export async function setupRoutes(rawApp: FastifyInstance) {
       },
     },
     async (req, reply) => {
-      const { token } = req.body;
+      const { token, workspace } = req.body;
+      // `?role=member` needs a user context and was retired by Atlassian (410),
+      // so repositories can only be listed under an explicit workspace.
+      if (!workspace) {
+        return reply.send({
+          repos: [],
+          error: "A Bitbucket workspace slug is required to list repositories.",
+        });
+      }
       try {
         const res = await fetch(
-          "https://api.bitbucket.org/2.0/repositories?role=member&sort=-updated_on&pagelen=20",
+          `${BITBUCKET_API}/repositories/${encodeURIComponent(workspace)}?sort=-updated_on&pagelen=20`,
           { headers: { Authorization: `Bearer ${token}`, "User-Agent": "Optio" } },
         );
         if (!res.ok) {
-          return reply.send({ repos: [], error: `Bitbucket returned ${res.status}` });
+          app.log.warn(
+            { status: res.status, workspace },
+            "Bitbucket repo listing rejected the token",
+          );
+          return reply.send({ repos: [], error: describeBitbucketFailure(res.status, workspace) });
         }
 
         type BitbucketRepo = {

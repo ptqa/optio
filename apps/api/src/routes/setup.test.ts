@@ -285,26 +285,151 @@ describe("POST /api/setup/validate/bitbucket-token", () => {
     );
   });
 
-  it("accepts a scoped access token through the repository fallback", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce({ ok: false, status: 403 })
-      .mockResolvedValueOnce({ ok: true, status: 200 });
+  // Scoped access tokens (repository/project/workspace) authenticate as a
+  // resource, so /2.0/user answers 403 and the user-context listing endpoints
+  // (/2.0/workspaces, /2.0/repositories?role=…) answer 410 Gone. Verified
+  // against the live API on 2026-08-06 with an ATCT… workspace token.
+  it("validates a scoped access token against the workspace endpoint", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ slug: "acme", name: "Acme Inc" }),
+    });
     vi.stubGlobal("fetch", fetchMock);
 
     const res = await app.inject({
       method: "POST",
       url: "/api/setup/validate/bitbucket-token",
-      payload: { token: "ATBB-scoped" },
+      payload: { token: "ATCT-scoped", workspace: "acme" },
     });
 
-    expect(res.json()).toEqual({
-      valid: true,
-      user: { login: "bitbucket", name: "Bitbucket access token" },
+    expect(res.json()).toEqual({ valid: true, user: { login: "acme", name: "Acme Inc" } });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe("https://api.bitbucket.org/2.0/workspaces/acme");
+  });
+
+  it("never calls the retired user-context endpoints", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue({ ok: true, status: 200, json: async () => ({ slug: "acme" }) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await app.inject({
+      method: "POST",
+      url: "/api/setup/validate/bitbucket-token",
+      payload: { token: "ATCT-scoped", workspace: "acme" },
     });
-    expect(fetchMock.mock.calls[1][0]).toBe(
-      "https://api.bitbucket.org/2.0/repositories?role=member&pagelen=1",
+
+    const urls: string[] = fetchMock.mock.calls.map((c) => String(c[0]));
+    expect(urls.some((u) => u.includes("role=member"))).toBe(false);
+    expect(urls.some((u) => u.endsWith("/2.0/workspaces"))).toBe(false);
+    expect(urls.some((u) => u.endsWith("/2.0/user"))).toBe(false);
+  });
+
+  it("tells the user to supply a workspace when a scoped token hits /user", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 403 }));
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/setup/validate/bitbucket-token",
+      payload: { token: "ATCT-scoped" },
+    });
+
+    expect(res.json().valid).toBe(false);
+    expect(res.json().error).toMatch(/workspace/i);
+  });
+
+  it("reports a scope problem when the workspace probe is forbidden", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 403 }));
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/setup/validate/bitbucket-token",
+      payload: { token: "ATCT-scoped", workspace: "acme" },
+    });
+
+    expect(res.json().valid).toBe(false);
+    expect(res.json().error).toContain("acme");
+    expect(res.json().error).toMatch(/scope|different workspace/i);
+  });
+
+  it("flags an unknown workspace slug distinctly from an auth failure", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 404 }));
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/setup/validate/bitbucket-token",
+      payload: { token: "ATCT-scoped", workspace: "nope" },
+    });
+
+    expect(res.json().valid).toBe(false);
+    expect(res.json().error).toMatch(/not found/i);
+  });
+});
+
+describe("POST /api/setup/repos/bitbucket", () => {
+  let app: FastifyInstance;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    app = await buildTestApp();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("lists repositories under the given workspace", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        values: [
+          {
+            full_name: "acme/web",
+            links: {
+              clone: [{ name: "https", href: "https://bitbucket.org/acme/web.git" }],
+              html: { href: "https://bitbucket.org/acme/web" },
+            },
+            mainbranch: { name: "develop" },
+            is_private: true,
+            updated_on: "2026-08-06T00:00:00Z",
+          },
+        ],
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/setup/repos/bitbucket",
+      payload: { token: "ATCT-scoped", workspace: "acme" },
+    });
+
+    expect(res.json().repos).toHaveLength(1);
+    expect(res.json().repos[0]).toMatchObject({
+      fullName: "acme/web",
+      defaultBranch: "develop",
+      isPrivate: true,
+    });
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      "https://api.bitbucket.org/2.0/repositories/acme?sort=-updated_on&pagelen=20",
     );
+  });
+
+  it("refuses to call the retired role=member listing when no workspace is given", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/setup/repos/bitbucket",
+      payload: { token: "ATCT-scoped" },
+    });
+
+    expect(res.json().repos).toEqual([]);
+    expect(res.json().error).toMatch(/workspace/i);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 
