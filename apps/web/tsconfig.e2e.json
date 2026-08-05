@@ -1,0 +1,14 @@
+{
+  // Playwright e2e specs live outside the Next.js app graph: they import from
+  // apps/api (test harness helpers) and run under Node, not the bundler. The
+  // app tsconfig excludes them so `next build` doesn't try to typecheck files
+  // whose imports aren't present in the web Docker build context.
+  // This config keeps them covered by `pnpm turbo typecheck`.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "plugins": [],
+    "jsx": "react-jsx"
+  },
+  "include": ["e2e/**/*.ts", "playwright.config.ts"],
+  "exclude": ["node_modules"]
+}
