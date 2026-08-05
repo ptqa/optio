@@ -41,6 +41,17 @@ const PROVIDER_ICONS: Record<string, React.ReactNode> = {
   ),
 };
 
+/** Messages for the ?error= codes the API redirects back with. */
+const LOGIN_ERROR_MESSAGES: Record<string, string> = {
+  invalid_state: "Login session expired. Please try again.",
+  missing_params: "Missing authorization parameters.",
+  email_not_allowed: "That account isn't allowed to sign in here. Use your organization account.",
+  email_unverified: "Your provider reports this email address as unverified.",
+  provider_error: "The identity provider returned an error. Please try again.",
+  unknown_provider: "That sign-in provider isn't configured.",
+  auth_failed: "Sign-in failed. Please try again.",
+};
+
 export default function LoginPage() {
   const searchParams = useSearchParams();
   const error = searchParams.get("error");
@@ -86,11 +97,7 @@ export default function LoginPage() {
 
         {error && (
           <div className="mb-6 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm text-center">
-            {error === "invalid_state"
-              ? "Login session expired. Please try again."
-              : error === "missing_params"
-                ? "Missing authorization parameters."
-                : `Authentication error: ${error}`}
+            {LOGIN_ERROR_MESSAGES[error] ?? `Authentication error: ${error}`}
           </div>
         )}
 

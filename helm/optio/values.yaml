@@ -302,6 +302,14 @@ publicUrl: ""  # e.g. https://optio.example.com
 auth:
   # Set to true to disable authentication (NOT recommended for production).
   disabled: false
+  # Restrict who may sign in. A successful OAuth flow only proves identity, not
+  # membership: with both lists empty ANY account that can authenticate with a
+  # configured provider is provisioned on first sign-in. Set at least one of
+  # these on any deployment reachable from the internet.
+  # An address matching either list is admitted. Domains match exactly —
+  # subdomains are not included.
+  allowedEmailDomains: []  # e.g. ["example.com", "example.org"]
+  allowedEmails: []        # e.g. ["contractor@gmail.com"]
   # OAuth provider credentials — configure at least one when auth is enabled.
   github:
     clientId: ""

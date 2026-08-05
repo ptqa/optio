@@ -9,6 +9,12 @@ export interface OAuthUser {
   email: string;
   displayName: string;
   avatarUrl?: string;
+  /**
+   * Whether the provider asserts the address is verified. Left undefined by
+   * providers that don't report it; the sign-in gate only rejects an explicit
+   * false, so those providers behave as before.
+   */
+  emailVerified?: boolean;
 }
 
 export interface OAuthProvider {

@@ -8,7 +8,12 @@ import {
   invalidateCredentialsCache,
 } from "../services/auth-service.js";
 import { getRecentAuthFailures } from "../services/auth-failure-detector.js";
-import { getOAuthProvider, getEnabledProviders, isAuthDisabled } from "../services/oauth/index.js";
+import {
+  getOAuthProvider,
+  getEnabledProviders,
+  isAuthDisabled,
+  isEmailAllowed,
+} from "../services/oauth/index.js";
 import {
   createSession,
   createWsToken,
@@ -467,6 +472,26 @@ export async function authRoutes(rawApp: FastifyInstance) {
       try {
         const tokens = await provider.exchangeCode(code);
         const profile = await provider.fetchUser(tokens.accessToken);
+
+        // Gate sign-in before createSession, which provisions a user on first
+        // sight. Without this, any account that can complete a provider flow
+        // gets an Optio account able to run agents in this cluster.
+        if (profile.emailVerified === false) {
+          req.log.warn(
+            { provider: providerName, externalId: profile.externalId },
+            "OAuth sign-in rejected: provider reports the address is unverified",
+          );
+          return reply.redirect(`${WEB_URL}/login?error=email_unverified`);
+        }
+
+        if (!isEmailAllowed(profile.email)) {
+          req.log.warn(
+            { provider: providerName, externalId: profile.externalId },
+            "OAuth sign-in rejected: address not in allowlist",
+          );
+          return reply.redirect(`${WEB_URL}/login?error=email_not_allowed`);
+        }
+
         const session = await createSession(providerName, profile);
 
         // Store GitHub App user tokens for git/API operations
