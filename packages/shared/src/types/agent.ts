@@ -46,7 +46,18 @@ export interface AgentTaskInput {
 export interface AgentContainerConfig {
   command: string[];
   env: Record<string, string>;
+  /**
+   * Secrets the agent cannot run without. Resolution failure aborts the run
+   * before the pod is provisioned.
+   */
   requiredSecrets: string[];
+  /**
+   * Secrets to inject when they exist and skip silently when they don't.
+   * Used by provider-agnostic agents (OpenCode) that accept any one of
+   * several provider keys — requiring all of them would reject a perfectly
+   * valid single-provider setup.
+   */
+  optionalSecrets?: string[];
   image?: string;
   /**
    * Files to create inside the container before running the agent. The

@@ -76,10 +76,20 @@ describe("OpenCodeAdapter", () => {
       expect(config.env.OPTIO_REPO_BRANCH).toBe("main");
     });
 
-    it("requires provider API key secrets", () => {
+    it("treats provider API keys as optional, never required", () => {
+      // OpenCode only needs the key for its model's provider. Hard-requiring
+      // every provider key would break a valid OpenAI-only setup.
       const config = adapter.buildContainerConfig(baseInput);
-      expect(config.requiredSecrets).toContain("ANTHROPIC_API_KEY");
-      expect(config.requiredSecrets).toContain("OPENAI_API_KEY");
+      expect(config.requiredSecrets).toEqual([]);
+      expect(config.optionalSecrets).toContain("ANTHROPIC_API_KEY");
+      expect(config.optionalSecrets).toContain("OPENAI_API_KEY");
+      expect(config.optionalSecrets).toContain("GROQ_API_KEY");
+    });
+
+    it("accepts a single provider key", () => {
+      expect(adapter.validateSecrets(["OPENAI_API_KEY"])).toEqual({ valid: true, missing: [] });
+      expect(adapter.validateSecrets(["ANTHROPIC_API_KEY"])).toEqual({ valid: true, missing: [] });
+      expect(adapter.validateSecrets([]).valid).toBe(false);
     });
 
     it("sets OPTIO_OPENCODE_MODEL when opencodeModel is provided", () => {

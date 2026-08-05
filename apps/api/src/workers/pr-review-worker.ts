@@ -438,7 +438,10 @@ export function startPrReviewWorker() {
         );
         const allEnv: Record<string, string> = { ...agentConfig.env, ...resolvedSecrets };
 
+        // Adapter optional secrets + infra-level git tokens, all best-effort:
+        // absent secrets are skipped, not fatal.
         for (const secretName of [
+          ...(agentConfig.optionalSecrets ?? []),
           "GITHUB_TOKEN",
           "GITLAB_TOKEN",
           "GITLAB_HOST",

@@ -19,16 +19,21 @@ import type { AgentAdapter } from "./types.js";
  * not exhaustively documented and may change between versions.
  */
 
+/**
+ * Provider API keys OpenCode knows how to use. Any one of them is enough —
+ * which one depends on the configured model's `provider/model` prefix.
+ */
+const PROVIDER_API_KEYS = ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GROQ_API_KEY"] as const;
+
 export class OpenCodeAdapter implements AgentAdapter {
   readonly type = "opencode";
   readonly displayName = "OpenCode";
 
   validateSecrets(availableSecrets: string[]): { valid: boolean; missing: string[] } {
     // OpenCode is provider-agnostic — it needs at least one provider API key.
-    // Note: when opencodeBaseUrl is set, buildContainerConfig() skips requiredSecrets
-    // and injects a placeholder key, so missing provider keys won't block execution.
-    const acceptedKeys = ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GROQ_API_KEY"];
-    const hasAny = acceptedKeys.some((k) => availableSecrets.includes(k));
+    // Note: when opencodeBaseUrl is set, buildContainerConfig() injects a
+    // placeholder key, so missing provider keys won't block execution.
+    const hasAny = PROVIDER_API_KEYS.some((k) => availableSecrets.includes(k));
     return {
       valid: hasAny,
       missing: hasAny ? [] : ["ANTHROPIC_API_KEY or OPENAI_API_KEY"],
@@ -47,16 +52,14 @@ export class OpenCodeAdapter implements AgentAdapter {
       OPTIO_BRANCH_NAME: `${TASK_BRANCH_PREFIX}${input.taskId}`,
     };
 
-    // OpenCode reads provider-specific env vars directly (ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.)
-    // These are injected via requiredSecrets
+    // OpenCode reads provider-specific env vars directly (ANTHROPIC_API_KEY,
+    // OPENAI_API_KEY, ...) and only needs the key for the provider its model
+    // belongs to. Injecting every key we happen to have is fine; demanding
+    // all of them is not — that would reject an OpenAI-only setup running
+    // `openai/gpt-4o`. validateSecrets() is the gate that enforces "at least
+    // one provider key", so these stay optional here.
     const requiredSecrets: string[] = [];
-
-    // When using a custom base URL, provider API keys are optional — the adapter
-    // sets a placeholder OPENAI_API_KEY in env that will be overridden if a real
-    // secret exists. Without a custom base URL, require standard provider keys.
-    if (!input.opencodeBaseUrl) {
-      requiredSecrets.push("ANTHROPIC_API_KEY", "OPENAI_API_KEY");
-    }
+    const optionalSecrets = [...PROVIDER_API_KEYS];
 
     const setupFiles: AgentContainerConfig["setupFiles"] = [];
 
@@ -95,6 +98,7 @@ export class OpenCodeAdapter implements AgentAdapter {
       command: ["/opt/optio/entrypoint.sh"],
       env,
       requiredSecrets,
+      optionalSecrets,
       setupFiles,
     };
   }

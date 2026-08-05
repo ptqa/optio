@@ -619,8 +619,11 @@ export function startTaskWorker() {
         );
         const allEnv: Record<string, string> = { ...agentConfig.env, ...resolvedSecrets };
 
-        // Resolve git platform tokens (not part of adapter requiredSecrets since they're infra-level)
+        // Resolve the adapter's optional secrets, plus git platform tokens
+        // (infra-level, so not part of the adapter's requiredSecrets). All
+        // best-effort: absent secrets are skipped, not fatal.
         for (const secretName of [
+          ...(agentConfig.optionalSecrets ?? []),
           "GITHUB_TOKEN",
           "GITLAB_TOKEN",
           "GITLAB_HOST",
