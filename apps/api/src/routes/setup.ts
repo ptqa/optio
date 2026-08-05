@@ -18,6 +18,9 @@ const gitlabTokenSchema = z
       .describe("Optional self-hosted GitLab host; defaults to gitlab.com"),
   })
   .describe("GitLab token + optional host");
+const bitbucketTokenSchema = z
+  .object({ token: z.string().min(1) })
+  .describe("Bitbucket Cloud access token");
 const awsCredentialsSchema = z
   .object({
     accessKeyId: z.string().min(1),
@@ -123,7 +126,8 @@ export async function setupRoutes(rawApp: FastifyInstance) {
       const hasGitToken =
         secretNames.includes("GITHUB_TOKEN") ||
         isGitHubAppConfigured() ||
-        secretNames.includes("GITLAB_TOKEN");
+        secretNames.includes("GITLAB_TOKEN") ||
+        secretNames.includes("BITBUCKET_TOKEN");
 
       const usingSubscription = isSubscriptionAvailable();
       const hasOauthToken = secretNames.includes("CLAUDE_CODE_OAUTH_TOKEN");
@@ -254,6 +258,62 @@ export async function setupRoutes(rawApp: FastifyInstance) {
       } catch (err) {
         app.log.error(err, "GitLab token validation failed");
         reply.send({ valid: false, error: sanitizeError(err) });
+      }
+    },
+  );
+
+  app.post(
+    "/api/setup/validate/bitbucket-token",
+    {
+      config: { rateLimit: SETUP_POST_RATE_LIMIT },
+      preHandler: [requireAdminWhenAuthenticated],
+      schema: {
+        operationId: "validateBitbucketToken",
+        summary: "Validate a Bitbucket Cloud access token",
+        description: "Probe Bitbucket Cloud with the provided access token.",
+        tags: ["Setup & Settings"],
+        body: bitbucketTokenSchema,
+        response: { 200: ValidationResultSchema, 400: ErrorResponseSchema },
+      },
+    },
+    async (req, reply) => {
+      const { token } = req.body;
+      const headers = { Authorization: `Bearer ${token}`, "User-Agent": "Optio" };
+
+      try {
+        const res = await fetch("https://api.bitbucket.org/2.0/user", { headers });
+        if (res.ok) {
+          const user = (await res.json()) as {
+            nickname?: string;
+            username?: string;
+            uuid: string;
+            display_name: string;
+          };
+          return reply.send({
+            valid: true,
+            user: { login: user.nickname ?? user.username ?? user.uuid, name: user.display_name },
+          });
+        }
+
+        // Repository- and workspace-scoped tokens cannot call /user and return 401/403
+        // even when valid for repository access, so probe a member repository before rejecting them.
+        if (res.status === 401 || res.status === 403) {
+          const repoRes = await fetch(
+            "https://api.bitbucket.org/2.0/repositories?role=member&pagelen=1",
+            { headers },
+          );
+          if (repoRes.ok) {
+            return reply.send({
+              valid: true,
+              user: { login: "bitbucket", name: "Bitbucket access token" },
+            });
+          }
+        }
+
+        return reply.send({ valid: false, error: `Bitbucket returned ${res.status}` });
+      } catch (err) {
+        app.log.error(err, "Bitbucket token validation failed");
+        return reply.send({ valid: false, error: sanitizeError(err) });
       }
     },
   );
@@ -640,6 +700,66 @@ export async function setupRoutes(rawApp: FastifyInstance) {
       } catch (err) {
         app.log.error(err, "GitLab repo listing failed");
         reply.send({ repos: [], error: sanitizeError(err) });
+      }
+    },
+  );
+
+  app.post(
+    "/api/setup/repos/bitbucket",
+    {
+      config: { rateLimit: SETUP_POST_RATE_LIMIT },
+      preHandler: [requireAdminWhenAuthenticated],
+      schema: {
+        operationId: "listSetupBitbucketRepos",
+        summary: "List Bitbucket Cloud repositories available for setup",
+        description: "List Bitbucket Cloud repositories accessible to the provided token.",
+        tags: ["Setup & Settings"],
+        body: bitbucketTokenSchema,
+        response: { 200: ReposListResponseSchema, 400: ErrorResponseSchema },
+      },
+    },
+    async (req, reply) => {
+      const { token } = req.body;
+      try {
+        const res = await fetch(
+          "https://api.bitbucket.org/2.0/repositories?role=member&sort=-updated_on&pagelen=20",
+          { headers: { Authorization: `Bearer ${token}`, "User-Agent": "Optio" } },
+        );
+        if (!res.ok) {
+          return reply.send({ repos: [], error: `Bitbucket returned ${res.status}` });
+        }
+
+        type BitbucketRepo = {
+          full_name: string;
+          links: {
+            clone?: Array<{ name?: string; href?: string }>;
+            html: { href: string };
+          };
+          mainbranch?: { name?: string };
+          is_private: boolean;
+          description?: string | null;
+          language?: string | null;
+          updated_on: string;
+        };
+
+        const data = (await res.json()) as { values: BitbucketRepo[] };
+        const repos = data.values.map((r) => ({
+          fullName: r.full_name,
+          cloneUrl:
+            r.links.clone?.find((link) => link.name === "https")?.href ??
+            `https://bitbucket.org/${r.full_name}.git`,
+          htmlUrl: r.links.html.href,
+          defaultBranch: r.mainbranch?.name ?? "main",
+          isPrivate: r.is_private,
+          description: r.description ?? null,
+          language: r.language ?? null,
+          pushedAt: r.updated_on,
+        }));
+
+        return reply.send({ repos });
+      } catch (err) {
+        app.log.error(err, "Bitbucket repo listing failed");
+        return reply.send({ repos: [], error: sanitizeError(err) });
       }
     },
   );

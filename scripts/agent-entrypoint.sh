@@ -20,6 +20,14 @@ if [ -n "${GITLAB_TOKEN:-}" ] && command -v glab >/dev/null 2>&1; then
   echo "[optio] GitLab CLI authenticated"
 fi
 case "${OPTIO_REPO_URL:-}" in
+  *bitbucket.org*)
+    if [ -n "${BITBUCKET_TOKEN:-}" ]; then
+      git config --global credential.helper store
+      printf 'https://x-token-auth:%s@bitbucket.org\n' "${BITBUCKET_TOKEN}" > ~/.git-credentials
+      chmod 600 ~/.git-credentials
+      echo "[optio] Bitbucket credentials configured"
+    fi
+    ;;
   *git-codecommit.*.amazonaws.com*)
     if command -v aws >/dev/null 2>&1; then
       git config --global credential.helper '!aws codecommit credential-helper $@'

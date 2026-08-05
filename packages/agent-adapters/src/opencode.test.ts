@@ -188,6 +188,24 @@ describe("OpenCodeAdapter", () => {
       expect(result.prUrl).toBe("https://github.com/org/repo/pull/42");
     });
 
+    it("extracts Bitbucket PR URL from logs", () => {
+      const logs = `Working on task...\nhttps://bitbucket.org/acme/widgets/pull-requests/7\nDone!`;
+      const result = adapter.parseResult(0, logs);
+      expect(result.prUrl).toBe("https://bitbucket.org/acme/widgets/pull-requests/7");
+    });
+
+    it("keeps extracting GitHub PR URLs", () => {
+      const logs = `Working on task...\nhttps://github.com/acme/widgets/pull/7\nDone!`;
+      const result = adapter.parseResult(0, logs);
+      expect(result.prUrl).toBe("https://github.com/acme/widgets/pull/7");
+    });
+
+    it("does not extract Bitbucket API URLs", () => {
+      const logs = "https://api.bitbucket.org/2.0/repositories/acme/widgets/pullrequests";
+      const result = adapter.parseResult(0, logs);
+      expect(result.prUrl).toBeUndefined();
+    });
+
     it("extracts GitLab MR URL from logs", () => {
       const logs = `Working on task...\nhttps://gitlab.com/org/repo/-/merge_requests/7\nDone!`;
       const result = adapter.parseResult(0, logs);

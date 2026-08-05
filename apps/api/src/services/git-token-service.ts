@@ -18,6 +18,7 @@ export interface GitTokenContext {
  * GitLab: checks GITLAB_TOKEN secret (workspace-scoped → global).
  * CodeCommit: returns a JSON-encoded AWS credential blob (or "workload-identity"
  * sentinel) — see codecommit-credential-service.
+ * Bitbucket: checks user access token, then BITBUCKET_TOKEN (workspace-scoped → global).
  */
 export async function getGitToken(
   platform: GitPlatformType,
@@ -34,29 +35,57 @@ export async function getGitToken(
     return getCodeCommitCredentials(context.workspaceId);
   }
 
-  // GitLab: try user-scoped token, then workspace/global GITLAB_TOKEN
-  if (context.userId) {
+  if (platform === "gitlab") {
+    // GitLab: try user-scoped token, then workspace/global GITLAB_TOKEN
+    if (context.userId) {
+      try {
+        return await retrieveSecretWithFallback(
+          "GITLAB_USER_ACCESS_TOKEN",
+          `user:${context.userId}`,
+          context.workspaceId,
+        );
+      } catch {
+        logger.debug({ userId: context.userId }, "No user GitLab token, trying global");
+      }
+    }
+
     try {
-      return await retrieveSecretWithFallback(
-        "GITLAB_USER_ACCESS_TOKEN",
-        `user:${context.userId}`,
-        context.workspaceId,
-      );
+      return await retrieveSecretWithFallback("GITLAB_TOKEN", "global", context.workspaceId);
     } catch {
-      logger.debug({ userId: context.userId }, "No user GitLab token, trying global");
+      // Fall back to env var
+      const envToken = process.env.GITLAB_TOKEN;
+      if (envToken) return envToken;
+      throw new Error(
+        "No GitLab token available. Add a GITLAB_TOKEN secret or set the GITLAB_TOKEN environment variable.",
+      );
     }
   }
 
-  try {
-    return await retrieveSecretWithFallback("GITLAB_TOKEN", "global", context.workspaceId);
-  } catch {
-    // Fall back to env var
-    const envToken = process.env.GITLAB_TOKEN;
-    if (envToken) return envToken;
-    throw new Error(
-      "No GitLab token available. Add a GITLAB_TOKEN secret or set the GITLAB_TOKEN environment variable.",
-    );
+  if (platform === "bitbucket") {
+    if (context.userId) {
+      try {
+        return await retrieveSecretWithFallback(
+          "BITBUCKET_USER_ACCESS_TOKEN",
+          `user:${context.userId}`,
+          context.workspaceId,
+        );
+      } catch {
+        logger.debug({ userId: context.userId }, "No user Bitbucket token, trying global");
+      }
+    }
+
+    try {
+      return await retrieveSecretWithFallback("BITBUCKET_TOKEN", "global", context.workspaceId);
+    } catch {
+      const envToken = process.env.BITBUCKET_TOKEN;
+      if (envToken) return envToken;
+      throw new Error(
+        "No Bitbucket token available. Add a BITBUCKET_TOKEN secret or set the BITBUCKET_TOKEN environment variable.",
+      );
+    }
   }
+
+  throw new Error(`Unsupported git platform: ${platform}`);
 }
 
 /**

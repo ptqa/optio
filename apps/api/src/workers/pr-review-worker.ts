@@ -437,13 +437,21 @@ export function startPrReviewWorker() {
         );
         const allEnv: Record<string, string> = { ...agentConfig.env, ...resolvedSecrets };
 
-        for (const secretName of ["GITHUB_TOKEN", "GITLAB_TOKEN", "GITLAB_HOST"]) {
+        for (const secretName of [
+          "GITHUB_TOKEN",
+          "GITLAB_TOKEN",
+          "GITLAB_HOST",
+          "BITBUCKET_TOKEN",
+        ]) {
           if (!allEnv[secretName]) {
             const val = await retrieveSecretWithFallback(secretName, "global", workspaceId).catch(
               () => null,
             );
             if (val) allEnv[secretName] = val as string;
           }
+        }
+        if (!allEnv.BITBUCKET_TOKEN && process.env.BITBUCKET_TOKEN) {
+          allEnv.BITBUCKET_TOKEN = process.env.BITBUCKET_TOKEN;
         }
 
         const apiInternalUrl =
@@ -481,6 +489,7 @@ export function startPrReviewWorker() {
           ...(allEnv.GITHUB_TOKEN ? { GITHUB_TOKEN: allEnv.GITHUB_TOKEN } : {}),
           ...(allEnv.GITLAB_TOKEN ? { GITLAB_TOKEN: allEnv.GITLAB_TOKEN } : {}),
           ...(allEnv.GITLAB_HOST ? { GITLAB_HOST: allEnv.GITLAB_HOST } : {}),
+          ...(allEnv.BITBUCKET_TOKEN ? { BITBUCKET_TOKEN: allEnv.BITBUCKET_TOKEN } : {}),
           ...(process.env.GITHUB_APP_BOT_NAME
             ? { GITHUB_APP_BOT_NAME: process.env.GITHUB_APP_BOT_NAME }
             : {}),

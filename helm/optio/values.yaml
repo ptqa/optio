@@ -366,6 +366,9 @@ encryption:
 # If empty, derived from the encryption key at startup.
 credentialSecret: ""
 
+# Bitbucket Cloud repository/workspace access token for agent git and API operations.
+bitbucketToken: ""
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Ingress
 # ──────────────────────────────────────────────────────────────────────────────

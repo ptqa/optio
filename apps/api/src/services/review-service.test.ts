@@ -263,4 +263,26 @@ describe("launchReview", () => {
     expect(taskFileContent).toContain("#99");
     expect(taskFileContent).toContain("optio/task-task-3");
   });
+
+  it("renders Bitbucket review commands for a Bitbucket pull request", async () => {
+    mockGetTask.mockResolvedValueOnce({
+      id: "task-bb",
+      title: "Fix Bitbucket build",
+      prompt: "Fix the build",
+      prUrl: "https://bitbucket.org/acme/widgets/pull-requests/7",
+      repoUrl: "https://bitbucket.org/acme/widgets",
+    });
+    vi.mocked(db.select().from(undefined as any).where as any)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+    mockCreateSubtask.mockResolvedValueOnce({ id: "review-bb" });
+    mockTransitionTask.mockResolvedValueOnce({ id: "review-bb" });
+
+    await launchReview("task-bb");
+
+    const renderedPrompt = mockQueueAdd.mock.calls[0][1].reviewOverride.renderedPrompt;
+    expect(renderedPrompt).toContain("api.bitbucket.org");
+    expect(renderedPrompt).toContain("request-changes");
+    expect(renderedPrompt).not.toContain("gh pr review");
+  });
 });

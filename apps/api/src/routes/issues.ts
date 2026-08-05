@@ -5,7 +5,7 @@ import { db } from "../db/client.js";
 import { repos, tasks, ticketProviders } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import { normalizeRepoUrl, parseRepoUrl } from "@optio/shared";
-import type { TicketSource } from "@optio/shared";
+import { TicketSource } from "@optio/shared";
 import { getTicketProvider } from "@optio/ticket-providers";
 import { getGitPlatformForRepo } from "../services/git-token-service.js";
 import { retrieveSecret } from "../services/secret-service.js";
@@ -44,6 +44,9 @@ const TaskResponseSchema = z
   })
   .describe("Task envelope");
 
+const isRepoScopedSource = (source: string | null): boolean =>
+  source === "github" || source === "gitlab" || source === "bitbucket";
+
 export async function issueRoutes(rawApp: FastifyInstance) {
   const app = rawApp.withTypeProvider<ZodTypeProvider>();
 
@@ -55,7 +58,7 @@ export async function issueRoutes(rawApp: FastifyInstance) {
         summary: "List issues from configured repos",
         description:
           "Aggregate open issues across every configured repository in the " +
-          "current workspace (GitHub or GitLab). Each issue is decorated " +
+          "current workspace (GitHub, GitLab, or Bitbucket). Each issue is decorated " +
           "with a `hasOptioLabel` flag and, if Optio is already working on " +
           "it, the corresponding `optioTask` reference. Sorted " +
           "unassigned-first, then by update recency.",
@@ -95,14 +98,11 @@ export async function issueRoutes(rawApp: FastifyInstance) {
         ? await db.select(taskSelect).from(tasks).where(eq(tasks.workspaceId, wsId))
         : await db.select(taskSelect).from(tasks);
 
-      // Repo-scoped task lookup (github/gitlab issues live under a specific repo,
+      // Repo-scoped task lookup (git-host issues live under a specific repo,
       // and issue numbers can repeat across repos — must include the repo URL in the key).
       const repoTaskMap = new Map(
         existingTasks
-          .filter(
-            (t) =>
-              (t.ticketSource === "github" || t.ticketSource === "gitlab") && t.ticketExternalId,
-          )
+          .filter((t) => isRepoScopedSource(t.ticketSource) && t.ticketExternalId)
           .map((t) => [
             `${normalizeRepoUrl(t.repoUrl)}:${t.ticketExternalId}`,
             { taskId: t.id, state: t.state },
@@ -114,11 +114,7 @@ export async function issueRoutes(rawApp: FastifyInstance) {
       const externalTaskMap = new Map(
         existingTasks
           .filter(
-            (t) =>
-              t.ticketSource &&
-              t.ticketSource !== "github" &&
-              t.ticketSource !== "gitlab" &&
-              t.ticketExternalId,
+            (t) => t.ticketSource && !isRepoScopedSource(t.ticketSource) && t.ticketExternalId,
           )
           .map((t) => [
             `${t.ticketSource}:${t.ticketExternalId}`,
@@ -142,7 +138,11 @@ export async function issueRoutes(rawApp: FastifyInstance) {
           const issueState = query.state ?? "open";
           const issues = await platform.listIssues(ri, { state: issueState, perPage: 50 });
           const repoSource: TicketSource =
-            ri.platform === "gitlab" ? ("gitlab" as TicketSource) : ("github" as TicketSource);
+            ri.platform === "gitlab"
+              ? TicketSource.GITLAB
+              : ri.platform === "bitbucket"
+                ? TicketSource.BITBUCKET
+                : TicketSource.GITHUB;
 
           for (const issue of issues) {
             if (issue.isPullRequest) continue;
@@ -181,7 +181,7 @@ export async function issueRoutes(rawApp: FastifyInstance) {
       }
 
       // Fan out to configured external ticket providers (Linear, Jira, Notion).
-      // GitHub / GitLab providers are skipped here since the repo loop above
+      // GitHub / GitLab / Bitbucket providers are skipped here since the repo loop above
       // already covers their issues via getGitPlatformForRepo.
       if (!query.repoId) {
         const providerRows = await db
@@ -190,7 +190,7 @@ export async function issueRoutes(rawApp: FastifyInstance) {
           .where(eq(ticketProviders.enabled, true));
 
         for (const providerRow of providerRows) {
-          if (providerRow.source === "github" || providerRow.source === "gitlab") continue;
+          if (isRepoScopedSource(providerRow.source)) continue;
           try {
             let mergedConfig = { ...((providerRow.config as Record<string, unknown>) ?? {}) };
             try {
@@ -321,7 +321,7 @@ export async function issueRoutes(rawApp: FastifyInstance) {
 
       let commentsSection = "";
       try {
-        const issueComments = await platform.getIssueComments(ri, body.issueNumber);
+        const issueComments = await platform.getIssueComments(ri, body.issueNumber, "issue");
         if (issueComments.length > 0) {
           commentsSection =
             "\n\n## Comments\n\n" +
@@ -331,12 +331,19 @@ export async function issueRoutes(rawApp: FastifyInstance) {
         logger.warn({ err, issueNumber: body.issueNumber }, "Failed to fetch issue comments");
       }
 
-      const ticketSource = ri.platform === "gitlab" ? "gitlab" : "github";
+      const ticketSource: TicketSource =
+        ri.platform === "gitlab"
+          ? TicketSource.GITLAB
+          : ri.platform === "bitbucket"
+            ? TicketSource.BITBUCKET
+            : TicketSource.GITHUB;
 
       const issueUrl =
         ri.platform === "gitlab"
           ? `https://${ri.host}/${ri.owner}/${ri.repo}/-/issues/${body.issueNumber}`
-          : `https://${ri.host}/${ri.owner}/${ri.repo}/issues/${body.issueNumber}`;
+          : ri.platform === "bitbucket"
+            ? `https://${ri.host}/${ri.owner}/${ri.repo}/issues/${body.issueNumber}`
+            : `https://${ri.host}/${ri.owner}/${ri.repo}/issues/${body.issueNumber}`;
 
       const taskServiceModule = await import("../services/task-service.js");
       const { TaskState } = await import("@optio/shared");

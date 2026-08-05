@@ -2,6 +2,7 @@ import type { GitPlatform, GitPlatformType } from "@optio/shared";
 import { GitHubPlatform } from "./github.js";
 import { GitLabPlatform } from "./gitlab.js";
 import { CodeCommitPlatform } from "./codecommit.js";
+import { BitbucketPlatform } from "./bitbucket.js";
 
 export function createGitPlatform(platform: GitPlatformType, token: string): GitPlatform {
   switch (platform) {
@@ -11,6 +12,8 @@ export function createGitPlatform(platform: GitPlatformType, token: string): Git
       return new GitLabPlatform(token);
     case "codecommit":
       return new CodeCommitPlatform(token);
+    case "bitbucket":
+      return new BitbucketPlatform(token);
     default:
       throw new Error(`Unsupported git platform: ${platform}`);
   }
@@ -19,3 +22,4 @@ export function createGitPlatform(platform: GitPlatformType, token: string): Git
 export { GitHubPlatform } from "./github.js";
 export { GitLabPlatform } from "./gitlab.js";
 export { CodeCommitPlatform } from "./codecommit.js";
+export { BitbucketPlatform } from "./bitbucket.js";

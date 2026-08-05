@@ -136,7 +136,7 @@ async function fetchPrContext(
   } catch {}
 
   try {
-    const comments = await platform.getIssueComments(ri, prNumber);
+    const comments = await platform.getIssueComments(ri, prNumber, "pull_request");
     if (comments.length > 0) {
       out.prComments = comments
         .map((c) => `**${c.author}** (${c.createdAt}):\n${c.body}`)
@@ -463,6 +463,7 @@ export async function enqueueReviewRun(
     const parsedRepoUrl = parseRepoUrl(review.repoUrl);
     const isGitLab = parsedRepoUrl?.platform === "gitlab";
     const isCodeCommit = parsedRepoUrl?.platform === "codecommit";
+    const isBitbucket = parsedRepoUrl?.platform === "bitbucket";
 
     renderedPrompt = renderPromptTemplate(template, {
       PR_NUMBER: String(review.prNumber),
@@ -473,6 +474,7 @@ export async function enqueueReviewRun(
       OUTPUT_PATH: PR_REVIEW_OUTPUT_PATH,
       GIT_PLATFORM_GITLAB: isGitLab ? "true" : "",
       GIT_PLATFORM_CODECOMMIT: isCodeCommit ? "true" : "",
+      GIT_PLATFORM_BITBUCKET: isBitbucket ? "true" : "",
       CODECOMMIT_REPO: isCodeCommit ? (parsedRepoUrl?.repo ?? "") : "",
       BASE_BRANCH: repoConfig.defaultBranch ?? "main",
     });

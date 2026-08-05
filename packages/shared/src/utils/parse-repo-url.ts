@@ -1,6 +1,7 @@
 import type { GitPlatformType, RepoIdentifier } from "../types/git-platform.js";
 
 const GITHUB_HOSTS = new Set(["github.com"]);
+const BITBUCKET_HOSTS = new Set(["bitbucket.org", "www.bitbucket.org"]);
 
 /**
  * GITLAB_HOSTS (plural): comma-separated list of all known GitLab hostnames,
@@ -43,6 +44,7 @@ function extractCodeCommitRegion(host: string): string | null {
 function detectPlatform(host: string): GitPlatformType {
   const h = host.toLowerCase();
   if (GITHUB_HOSTS.has(h)) return "github";
+  if (BITBUCKET_HOSTS.has(h)) return "bitbucket";
   if (getGitLabHosts().has(h)) return "gitlab";
   if (extractCodeCommitRegion(h)) return "codecommit";
   // Unknown hosts: check if the hostname contains "gitlab"
@@ -62,6 +64,7 @@ function buildApiBaseUrl(platform: GitPlatformType, host: string): string {
     // We store the region here so callers can configure the SDK client.
     return extractCodeCommitRegion(host) ?? "us-east-1";
   }
+  if (platform === "bitbucket") return "https://api.bitbucket.org/2.0";
   return `https://${host}/api/v4`;
 }
 
@@ -104,7 +107,7 @@ function extractParts(url: string): { host: string; path: string } | null {
  * Clean a path segment: strip .git suffix, trailing slashes, and extract
  * owner/repo. For GitLab subgroups the owner includes the full namespace
  * path (e.g. "group/subgroup"), with the last segment as the repo.
- * For GitHub-style URLs, takes the first two segments only.
+ * For GitHub and Bitbucket URLs, takes the first two segments only.
  * For CodeCommit, the owner field is set by the caller (region from the host).
  */
 function cleanOwnerRepo(
@@ -138,13 +141,13 @@ function cleanOwnerRepo(
     return { owner: parts.slice(0, -1).join("/"), repo: parts[parts.length - 1] };
   }
 
-  // GitHub: always owner/repo (first two segments)
+  // GitHub/Bitbucket: always owner/repo (first two segments)
   return { owner: parts[0], repo: parts[1] };
 }
 
 /**
  * Parse a git repository URL into a RepoIdentifier.
- * Detects platform from the host (github.com → github, gitlab.com or GITLAB_HOSTS → gitlab).
+ * Detects GitHub, GitLab, CodeCommit, and Bitbucket Cloud from the host.
  */
 export function parseRepoUrl(url: string): RepoIdentifier | null {
   const extracted = extractParts(url);
@@ -168,7 +171,8 @@ export function parseRepoUrl(url: string): RepoIdentifier | null {
 /**
  * Parse a PR/MR URL into a RepoIdentifier plus the PR/MR number.
  * Handles GitHub `/pull/N`, GitLab `/-/merge_requests/N` or `/merge_requests/N`,
- * and CodeCommit console URLs `<region>.console.aws.amazon.com/codesuite/codecommit/repositories/<repo>/pull-requests/<id>`.
+ * Bitbucket Cloud `/pull-requests/N`, and CodeCommit console URLs
+ * `<region>.console.aws.amazon.com/codesuite/codecommit/repositories/<repo>/pull-requests/<id>`.
  */
 export function parsePrUrl(url: string): (RepoIdentifier & { prNumber: number }) | null {
   const extracted = extractParts(url);
@@ -191,6 +195,22 @@ export function parsePrUrl(url: string): (RepoIdentifier & { prNumber: number })
         repo: ccMatch[1],
         apiBaseUrl: buildApiBaseUrl(platform, host),
         prNumber: parseInt(ccMatch[2], 10),
+      };
+    }
+    return null;
+  }
+
+  // Bitbucket Cloud: workspace/repo/pull-requests/123[/optional/segments]
+  if (platform === "bitbucket") {
+    const bbMatch = p.match(/^([^/]+)\/([^/]+)\/pull-requests\/(\d+)/);
+    if (bbMatch) {
+      return {
+        platform,
+        host,
+        owner: bbMatch[1],
+        repo: bbMatch[2],
+        apiBaseUrl: buildApiBaseUrl(platform, host),
+        prNumber: parseInt(bbMatch[3], 10),
       };
     }
     return null;

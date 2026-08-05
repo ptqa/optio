@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   DEFAULT_PROMPT_TEMPLATE,
+  DEFAULT_PR_REVIEW_PROMPT_TEMPLATE,
+  DEFAULT_REVIEW_PROMPT_TEMPLATE,
   renderPromptTemplate,
   renderTaskFile,
   TASK_FILE_PATH,
@@ -232,6 +234,166 @@ describe("CodeCommit branch in DEFAULT_PROMPT_TEMPLATE", () => {
     expect(result).toContain("gh pr create");
     expect(result).not.toContain("aws codecommit");
     expect(result).not.toContain("glab mr create");
+  });
+});
+
+describe("Bitbucket prompt rendering", () => {
+  it("uses the Bitbucket REST API to create a pull request", () => {
+    const result = renderPromptTemplate(DEFAULT_PROMPT_TEMPLATE, {
+      TASK_FILE: ".optio/task.md",
+      BRANCH_NAME: "optio/task-abc",
+      TASK_ID: "abc-123",
+      TASK_TITLE: "Fix login bug",
+      REPO_NAME: "acme/widgets",
+      BASE_BRANCH: "main",
+      GIT_PLATFORM_BITBUCKET: "true",
+    });
+    expect(result).toContain("api.bitbucket.org/2.0/repositories/acme/widgets/pullrequests");
+    expect(result).toContain("BITBUCKET_TOKEN");
+    expect(result).not.toContain("gh pr create");
+    expect(result).not.toContain("glab mr create");
+    expect(result).not.toContain("aws codecommit create-pull-request");
+    expect(result).toContain("optio/task-abc");
+    expect(result).toContain("main");
+    expect(result).not.toContain("draft: true");
+  });
+
+  it("creates a Bitbucket draft pull request in cautious mode", () => {
+    const result = renderPromptTemplate(DEFAULT_PROMPT_TEMPLATE, {
+      TASK_FILE: ".optio/task.md",
+      BRANCH_NAME: "optio/task-abc",
+      TASK_ID: "abc-123",
+      TASK_TITLE: "Fix login bug",
+      REPO_NAME: "acme/widgets",
+      BASE_BRANCH: "main",
+      DRAFT_PR: "true",
+      GIT_PLATFORM_BITBUCKET: "true",
+    });
+
+    expect(result).toContain("draft: true");
+  });
+
+  it("does not interpolate the task title into the Bitbucket shell command", () => {
+    const result = renderPromptTemplate(DEFAULT_PROMPT_TEMPLATE, {
+      TASK_FILE: ".optio/task.md",
+      BRANCH_NAME: "optio/task-abc",
+      TASK_ID: "abc-123",
+      TASK_TITLE: 'Fix "$(malicious-command)"',
+      REPO_NAME: "acme/widgets",
+      BASE_BRANCH: "main",
+      GIT_PLATFORM_BITBUCKET: "true",
+    });
+
+    expect(result).toContain(`sed -n '1s/^# //p' ".optio/task.md"`);
+    expect(result).not.toContain("malicious-command");
+  });
+
+  it("uses Bitbucket API review endpoints for the review prompt", () => {
+    const result = renderPromptTemplate(DEFAULT_REVIEW_PROMPT_TEMPLATE, {
+      TASK_FILE: ".optio/review-context.md",
+      PR_NUMBER: "12",
+      GIT_PLATFORM_BITBUCKET: "true",
+    });
+    expect(result).not.toContain("gh pr diff");
+    expect(result).not.toContain("glab mr diff");
+    expect(result).not.toContain("gh pr review");
+    expect(result).not.toContain("glab mr approve");
+    expect(result).toContain("api.bitbucket.org");
+    expect(result).toContain("curl");
+    expect(result).toContain("approve");
+    expect(result).toContain("request-changes");
+  });
+
+  it("writes Bitbucket PR review findings to the output file", () => {
+    const outputPath = ".optio/bitbucket-review.json";
+    const result = renderPromptTemplate(DEFAULT_PR_REVIEW_PROMPT_TEMPLATE, {
+      TASK_FILE: ".optio/review-context.md",
+      PR_NUMBER: "12",
+      REPO_NAME: "acme/widgets",
+      OUTPUT_PATH: outputPath,
+      GIT_PLATFORM_BITBUCKET: "true",
+    });
+    expect(result).not.toContain("gh pr diff");
+    expect(result).not.toContain("glab mr diff");
+    expect(result).not.toContain("gh pr review");
+    expect(result).toMatch(/do not submit.*Bitbucket/i);
+    expect(result).toContain(outputPath);
+  });
+
+  it("falls back to GitHub when no platform flag is set", () => {
+    const result = renderPromptTemplate(DEFAULT_PROMPT_TEMPLATE, {
+      TASK_FILE: ".optio/task.md",
+      BRANCH_NAME: "optio/task-abc",
+      TASK_ID: "abc-123",
+      TASK_TITLE: "Fix login bug",
+      REPO_NAME: "acme/widgets",
+      BASE_BRANCH: "main",
+    });
+    expect(result).toContain("gh pr create");
+    expect(result).not.toContain("glab mr create");
+    expect(result).not.toContain("api.bitbucket.org");
+    expect(result).not.toContain("aws codecommit");
+  });
+
+  it("uses GitLab when the GitLab platform flag is set", () => {
+    const result = renderPromptTemplate(DEFAULT_PROMPT_TEMPLATE, {
+      TASK_FILE: ".optio/task.md",
+      BRANCH_NAME: "optio/task-abc",
+      TASK_ID: "abc-123",
+      TASK_TITLE: "Fix login bug",
+      REPO_NAME: "acme/widgets",
+      BASE_BRANCH: "main",
+      GIT_PLATFORM_GITLAB: "true",
+    });
+    expect(result).toContain("glab mr create");
+    expect(result).not.toContain("gh pr create");
+    expect(result).not.toContain("api.bitbucket.org");
+  });
+
+  it("uses CodeCommit when the CodeCommit platform flag is set", () => {
+    const result = renderPromptTemplate(DEFAULT_PROMPT_TEMPLATE, {
+      TASK_FILE: ".optio/task.md",
+      BRANCH_NAME: "optio/task-abc",
+      TASK_ID: "abc-123",
+      TASK_TITLE: "Fix login bug",
+      REPO_NAME: "acme/widgets",
+      CODECOMMIT_REPO: "widgets",
+      BASE_BRANCH: "main",
+      GIT_PLATFORM_CODECOMMIT: "true",
+    });
+    expect(result).toContain("aws codecommit create-pull-request");
+    expect(result).not.toContain("api.bitbucket.org");
+  });
+
+  it("does not leave conditional markers in platform-rendered prompts", () => {
+    const commonVars = {
+      TASK_FILE: ".optio/task.md",
+      BRANCH_NAME: "optio/task-abc",
+      TASK_ID: "abc-123",
+      TASK_TITLE: "Fix login bug",
+      REPO_NAME: "acme/widgets",
+      BASE_BRANCH: "main",
+    };
+    const renderedOutputs = [
+      renderPromptTemplate(DEFAULT_PROMPT_TEMPLATE, {
+        ...commonVars,
+        GIT_PLATFORM_BITBUCKET: "true",
+      }),
+      renderPromptTemplate(DEFAULT_PROMPT_TEMPLATE, commonVars),
+      renderPromptTemplate(DEFAULT_PROMPT_TEMPLATE, {
+        ...commonVars,
+        GIT_PLATFORM_GITLAB: "true",
+      }),
+      renderPromptTemplate(DEFAULT_PROMPT_TEMPLATE, {
+        ...commonVars,
+        CODECOMMIT_REPO: "widgets",
+        GIT_PLATFORM_CODECOMMIT: "true",
+      }),
+    ];
+
+    for (const output of renderedOutputs) {
+      expect(output).not.toMatch(/\{\{#if|\{\{else\}\}|\{\{\/if\}\}/);
+    }
   });
 });
 

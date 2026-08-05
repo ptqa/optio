@@ -323,11 +323,12 @@ const MIGRATED_ROUTES: MigratedRoute[] = [
   // analytics.ts (1)
   { method: "get", path: "/api/analytics/costs" },
 
-  // Phase 7 — setup, secrets, optio, cluster (28 routes)
-  // setup.ts (12)
+  // Phase 7 — setup, secrets, optio, cluster (30 routes)
+  // setup.ts (14)
   { method: "get", path: "/api/setup/status" },
   { method: "post", path: "/api/setup/validate/github-token" },
   { method: "post", path: "/api/setup/validate/gitlab-token" },
+  { method: "post", path: "/api/setup/validate/bitbucket-token" },
   { method: "post", path: "/api/setup/validate/aws-credentials" },
   { method: "post", path: "/api/setup/validate/anthropic-key" },
   { method: "post", path: "/api/setup/validate/copilot-token" },
@@ -335,6 +336,7 @@ const MIGRATED_ROUTES: MigratedRoute[] = [
   { method: "post", path: "/api/setup/validate/gemini-key" },
   { method: "post", path: "/api/setup/repos" },
   { method: "post", path: "/api/setup/repos/gitlab" },
+  { method: "post", path: "/api/setup/repos/bitbucket" },
   { method: "post", path: "/api/setup/repos/codecommit" },
   { method: "post", path: "/api/setup/validate/repo" },
   // secrets.ts (3)
@@ -419,8 +421,9 @@ describe("OpenAPI spec — migrated routes are fully documented", () => {
   it("migrated routes count matches the sum of completed phases", () => {
     // Removed 14 routes (8 schedule + 6 task-template) that were redundant
     // with agent workflows. 183 - 14 = 169. Then added 2 CodeCommit setup
-    // routes (validate/aws-credentials and repos/codecommit) → 171.
-    expect(MIGRATED_ROUTES).toHaveLength(171);
+    // routes (validate/aws-credentials and repos/codecommit) → 171, then 2
+    // Bitbucket setup routes → 173.
+    expect(MIGRATED_ROUTES).toHaveLength(173);
   });
 
   it("components.schemas contains the Task domain types", () => {

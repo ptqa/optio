@@ -313,6 +313,7 @@ export function startTaskWorker() {
           : task.repoUrl.replace(/.*[/:]([^/]+\/[^/.]+).*/, "$1");
         const isGitLab = parsedRepo?.platform === "gitlab";
         const isCodeCommit = parsedRepo?.platform === "codecommit";
+        const isBitbucket = parsedRepo?.platform === "bitbucket";
         const branchName = `${TASK_BRANCH_PREFIX}${task.id}`;
         const taskFilePath = TASK_FILE_PATH;
 
@@ -331,6 +332,7 @@ export function startTaskWorker() {
           ISSUE_NUMBER: task.ticketExternalId ?? "",
           GIT_PLATFORM_GITLAB: isGitLab ? "true" : "",
           GIT_PLATFORM_CODECOMMIT: isCodeCommit ? "true" : "",
+          GIT_PLATFORM_BITBUCKET: isBitbucket ? "true" : "",
           CODECOMMIT_REPO: isCodeCommit ? (parsedRepo?.repo ?? "") : "",
           BASE_BRANCH: task.repoBranch ?? repoConfig?.defaultBranch ?? "main",
           PLANNING_MODE: isPlanningRun ? "true" : "",
@@ -619,7 +621,12 @@ export function startTaskWorker() {
         const allEnv: Record<string, string> = { ...agentConfig.env, ...resolvedSecrets };
 
         // Resolve git platform tokens (not part of adapter requiredSecrets since they're infra-level)
-        for (const secretName of ["GITHUB_TOKEN", "GITLAB_TOKEN", "GITLAB_HOST"]) {
+        for (const secretName of [
+          "GITHUB_TOKEN",
+          "GITLAB_TOKEN",
+          "GITLAB_HOST",
+          "BITBUCKET_TOKEN",
+        ]) {
           if (!allEnv[secretName]) {
             const val = await retrieveSecretWithFallback(
               secretName,
@@ -628,6 +635,9 @@ export function startTaskWorker() {
             ).catch(() => null);
             if (val) allEnv[secretName] = val as string;
           }
+        }
+        if (!allEnv.BITBUCKET_TOKEN && process.env.BITBUCKET_TOKEN) {
+          allEnv.BITBUCKET_TOKEN = process.env.BITBUCKET_TOKEN;
         }
 
         // Inject credential URLs for dynamic GitHub token resolution.
@@ -722,6 +732,7 @@ export function startTaskWorker() {
           ...(allEnv.GITHUB_TOKEN ? { GITHUB_TOKEN: allEnv.GITHUB_TOKEN } : {}),
           ...(allEnv.GITLAB_TOKEN ? { GITLAB_TOKEN: allEnv.GITLAB_TOKEN } : {}),
           ...(allEnv.GITLAB_HOST ? { GITLAB_HOST: allEnv.GITLAB_HOST } : {}),
+          ...(allEnv.BITBUCKET_TOKEN ? { BITBUCKET_TOKEN: allEnv.BITBUCKET_TOKEN } : {}),
           ...(process.env.GITHUB_APP_BOT_NAME
             ? { GITHUB_APP_BOT_NAME: process.env.GITHUB_APP_BOT_NAME }
             : {}),
@@ -966,9 +977,9 @@ export function startTaskWorker() {
               // agent referencing another repo's PR (e.g. via gh pr list on a
               // dependency) would store the wrong URL.
               if (!capturedPrUrl) {
-                // Match both GitHub PR URLs and GitLab MR URLs (web URLs only, not API URLs)
+                // Match GitHub PR, GitLab MR, and Bitbucket PR URLs (web URLs only, not API URLs)
                 const prUrlPattern =
-                  /https:\/\/(?![\w.-]+\/api\/)[^\s"]+\/(?:pull\/\d+|-\/merge_requests\/\d+)/g;
+                  /https:\/\/(?![\w.-]+\/api\/)[^\s"]+\/(?:pull\/\d+|-\/merge_requests\/\d+|pull-requests\/\d+)/g;
                 const prMatches = entry.content.match(prUrlPattern);
                 if (prMatches) {
                   const taskBranch = `optio/task-${taskId}`;

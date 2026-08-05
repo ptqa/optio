@@ -83,6 +83,17 @@ describe("GET /api/setup/status", () => {
     expect(body.steps.anthropicKey.done).toBe(true);
   });
 
+  it("returns fully set up when using a Bitbucket token", async () => {
+    mockListSecrets.mockResolvedValue([{ name: "ANTHROPIC_API_KEY" }, { name: "BITBUCKET_TOKEN" }]);
+    mockRetrieveSecret.mockRejectedValue(new Error("not found"));
+    mockCheckRuntimeHealth.mockResolvedValue(true);
+
+    const res = await app.inject({ method: "GET", url: "/api/setup/status" });
+
+    expect(res.json().isSetUp).toBe(true);
+    expect(res.json().steps.gitToken.done).toBe(true);
+  });
+
   it("returns not set up when no agent key exists", async () => {
     mockListSecrets.mockResolvedValue([{ name: "GITHUB_TOKEN" }]);
     mockRetrieveSecret.mockRejectedValue(new Error("not found"));
@@ -237,6 +248,63 @@ describe("POST /api/setup/validate/github-token", () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.json().valid).toBe(false);
+  });
+});
+
+describe("POST /api/setup/validate/bitbucket-token", () => {
+  let app: FastifyInstance;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    app = await buildTestApp();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("validates a user token with the fixed Bitbucket Cloud endpoint", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ nickname: "alice", display_name: "Alice", uuid: "{user}" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/setup/validate/bitbucket-token",
+      payload: { token: "ATBB-test" },
+    });
+
+    expect(res.json()).toEqual({ valid: true, user: { login: "alice", name: "Alice" } });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.bitbucket.org/2.0/user",
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: "Bearer ATBB-test" }),
+      }),
+    );
+  });
+
+  it("accepts a scoped access token through the repository fallback", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, status: 403 })
+      .mockResolvedValueOnce({ ok: true, status: 200 });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/setup/validate/bitbucket-token",
+      payload: { token: "ATBB-scoped" },
+    });
+
+    expect(res.json()).toEqual({
+      valid: true,
+      user: { login: "bitbucket", name: "Bitbucket access token" },
+    });
+    expect(fetchMock.mock.calls[1][0]).toBe(
+      "https://api.bitbucket.org/2.0/repositories?role=member&pagelen=1",
+    );
   });
 });
 

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import { parseRepoUrl, parsePrUrl } from "./parse-repo-url.js";
 
 describe("parseRepoUrl", () => {
@@ -94,6 +94,96 @@ describe("parseRepoUrl", () => {
       owner: "owner",
       repo: "repo",
       apiBaseUrl: "https://gitlab.com/api/v4",
+    });
+  });
+
+  describe("Bitbucket", () => {
+    it("parses Bitbucket HTTPS URL", () => {
+      const result = parseRepoUrl("https://bitbucket.org/acme/widgets");
+      expect(result).toEqual({
+        platform: "bitbucket",
+        host: "bitbucket.org",
+        owner: "acme",
+        repo: "widgets",
+        apiBaseUrl: "https://api.bitbucket.org/2.0",
+      });
+    });
+
+    it("parses Bitbucket HTTPS URL with .git suffix", () => {
+      const result = parseRepoUrl("https://bitbucket.org/acme/widgets.git");
+      expect(result).toEqual({
+        platform: "bitbucket",
+        host: "bitbucket.org",
+        owner: "acme",
+        repo: "widgets",
+        apiBaseUrl: "https://api.bitbucket.org/2.0",
+      });
+    });
+
+    it("parses Bitbucket SSH shorthand", () => {
+      const result = parseRepoUrl("git@bitbucket.org:acme/widgets.git");
+      expect(result).toEqual({
+        platform: "bitbucket",
+        host: "bitbucket.org",
+        owner: "acme",
+        repo: "widgets",
+        apiBaseUrl: "https://api.bitbucket.org/2.0",
+      });
+    });
+
+    it("parses Bitbucket SSH protocol", () => {
+      const result = parseRepoUrl("ssh://git@bitbucket.org/acme/widgets.git");
+      expect(result).toEqual({
+        platform: "bitbucket",
+        host: "bitbucket.org",
+        owner: "acme",
+        repo: "widgets",
+        apiBaseUrl: "https://api.bitbucket.org/2.0",
+      });
+    });
+
+    it("parses bare Bitbucket domain URL", () => {
+      const result = parseRepoUrl("bitbucket.org/acme/widgets");
+      expect(result).toEqual({
+        platform: "bitbucket",
+        host: "bitbucket.org",
+        owner: "acme",
+        repo: "widgets",
+        apiBaseUrl: "https://api.bitbucket.org/2.0",
+      });
+    });
+
+    it("lowercases Bitbucket host", () => {
+      const result = parseRepoUrl("HTTPS://BitBucket.org/acme/widgets");
+      expect(result).not.toBeNull();
+      expect(result!.host).toBe("bitbucket.org");
+      expect(result!.platform).toBe("bitbucket");
+    });
+
+    it("strips Bitbucket pull request suffix from repository URL", () => {
+      const result = parseRepoUrl("https://bitbucket.org/acme/widgets/pull-requests/12");
+      expect(result).toEqual({
+        platform: "bitbucket",
+        host: "bitbucket.org",
+        owner: "acme",
+        repo: "widgets",
+        apiBaseUrl: "https://api.bitbucket.org/2.0",
+      });
+    });
+
+    it("parses Bitbucket repository URLs with deeper path segments", () => {
+      const result = parseRepoUrl("https://bitbucket.org/acme/widgets/src/main/README.md");
+      expect(result).toEqual({
+        platform: "bitbucket",
+        host: "bitbucket.org",
+        owner: "acme",
+        repo: "widgets",
+        apiBaseUrl: "https://api.bitbucket.org/2.0",
+      });
+    });
+
+    it("returns null for Bitbucket URL with a single path segment", () => {
+      expect(parseRepoUrl("https://bitbucket.org/acme")).toBeNull();
     });
   });
 
@@ -241,6 +331,60 @@ describe("parsePrUrl", () => {
       repo: "repo",
       apiBaseUrl: "https://api.github.com",
       prNumber: 42,
+    });
+  });
+
+  it("parses Bitbucket PR URL", () => {
+    const result = parsePrUrl("https://bitbucket.org/acme/widgets/pull-requests/12");
+    expect(result).toEqual({
+      platform: "bitbucket",
+      host: "bitbucket.org",
+      owner: "acme",
+      repo: "widgets",
+      apiBaseUrl: "https://api.bitbucket.org/2.0",
+      prNumber: 12,
+    });
+  });
+
+  it("parses Bitbucket PR URL with slug and view suffix", () => {
+    const result = parsePrUrl(
+      "https://bitbucket.org/acme/widgets/pull-requests/12/some-branch-slug/diff",
+    );
+    expect(result).toEqual({
+      platform: "bitbucket",
+      host: "bitbucket.org",
+      owner: "acme",
+      repo: "widgets",
+      apiBaseUrl: "https://api.bitbucket.org/2.0",
+      prNumber: 12,
+    });
+  });
+
+  it("returns null for Bitbucket URL without a pull request path", () => {
+    expect(parsePrUrl("https://bitbucket.org/acme/widgets")).toBeNull();
+  });
+
+  it("keeps parsing GitHub PR URLs after Bitbucket support", () => {
+    const result = parsePrUrl("https://github.com/acme/widgets/pull/5");
+    expect(result).toEqual({
+      platform: "github",
+      host: "github.com",
+      owner: "acme",
+      repo: "widgets",
+      apiBaseUrl: "https://api.github.com",
+      prNumber: 5,
+    });
+  });
+
+  it("keeps parsing nested GitLab MR URLs after Bitbucket support", () => {
+    const result = parsePrUrl("https://gitlab.com/group/sub/proj/-/merge_requests/9");
+    expect(result).toEqual({
+      platform: "gitlab",
+      host: "gitlab.com",
+      owner: "group/sub",
+      repo: "proj",
+      apiBaseUrl: "https://gitlab.com/api/v4",
+      prNumber: 9,
     });
   });
 

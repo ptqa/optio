@@ -38,7 +38,8 @@ export function IssuesBrowser() {
   // External-tracker tickets (Linear/Jira/Notion) flow into Optio via the
   // ticket-sync worker — they can't be manually assigned from this UI.
   const isAssignable = (i: any) =>
-    (i.source === "github" || i.source === "gitlab" || !i.source) && i.repo?.id;
+    (i.source === "github" || i.source === "gitlab" || i.source === "bitbucket" || !i.source) &&
+    i.repo?.id;
   const unassignedIssues = issues.filter((i: any) => !i.optioTask && isAssignable(i));
 
   const handleAssignAll = async () => {
@@ -172,11 +173,14 @@ export function IssuesBrowser() {
                     <span className="text-xs text-text-muted shrink-0">
                       {typeof issue.number === "number" ? `#${issue.number}` : issue.number}
                     </span>
-                    {issue.source && issue.source !== "github" && issue.source !== "gitlab" && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-primary/30 bg-primary/10 text-primary uppercase tracking-wide shrink-0">
-                        {issue.source}
-                      </span>
-                    )}
+                    {issue.source &&
+                      issue.source !== "github" &&
+                      issue.source !== "gitlab" &&
+                      issue.source !== "bitbucket" && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-primary/30 bg-primary/10 text-primary uppercase tracking-wide shrink-0">
+                          {issue.source}
+                        </span>
+                      )}
                   </div>
                   <div className="flex items-center gap-3 mt-1 text-xs text-text-muted">
                     <span className="flex items-center gap-1">

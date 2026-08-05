@@ -71,6 +71,11 @@ export default function SetupPage() {
   const [gitlabUser, setGitlabUser] = useState<{ login: string; name: string } | null>(null);
   const [gitlabValidated, setGitlabValidated] = useState(false);
   const [gitlabError, setGitlabError] = useState("");
+  const [bitbucketEnabled, setBitbucketEnabled] = useState(false);
+  const [bitbucketToken, setBitbucketToken] = useState("");
+  const [bitbucketUser, setBitbucketUser] = useState<{ login: string; name: string } | null>(null);
+  const [bitbucketValidated, setBitbucketValidated] = useState(false);
+  const [bitbucketError, setBitbucketError] = useState("");
   const [codecommitEnabled, setCodecommitEnabled] = useState(false);
   const [awsAccessKeyId, setAwsAccessKeyId] = useState("");
   const [awsSecretAccessKey, setAwsSecretAccessKey] = useState("");
@@ -214,6 +219,7 @@ export default function SetupPage() {
         fetches.push(api.listUserRepos(githubToken || ""));
       if (gitlabEnabled && gitlabToken)
         fetches.push(api.listGitlabRepos(gitlabToken, gitlabHost || undefined));
+      if (bitbucketEnabled && bitbucketToken) fetches.push(api.listBitbucketRepos(bitbucketToken));
       if (codecommitEnabled && awsAccessKeyId && awsSecretAccessKey)
         fetches.push(
           api.listCodecommitRepos({
@@ -322,6 +328,25 @@ export default function SetupPage() {
       }
     } catch (err) {
       setGitlabError(err instanceof Error ? err.message : "Validation failed");
+    }
+    setLoading(false);
+  };
+
+  const validateBitbucket = async (tokenOverride?: string) => {
+    const token = tokenOverride ?? bitbucketToken;
+    if (!token.trim()) return;
+    setLoading(true);
+    setBitbucketError("");
+    try {
+      const res = await api.validateBitbucketToken(token);
+      if (res.valid && res.user) {
+        setBitbucketUser(res.user);
+        setBitbucketValidated(true);
+      } else {
+        setBitbucketError(res.error ?? "Invalid token");
+      }
+    } catch (err) {
+      setBitbucketError(err instanceof Error ? err.message : "Validation failed");
     }
     setLoading(false);
   };
@@ -490,6 +515,9 @@ export default function SetupPage() {
         if (gitlabHost && gitlabHost !== "gitlab.com") {
           await api.createSecret({ name: "GITLAB_HOST", value: gitlabHost });
         }
+      }
+      if (bitbucketEnabled && bitbucketToken.trim() && bitbucketValidated) {
+        await api.createSecret({ name: "BITBUCKET_TOKEN", value: bitbucketToken });
       }
       if (codecommitEnabled && awsAccessKeyId.trim() && awsSecretAccessKey.trim() && awsValidated) {
         await api.createSecret({ name: "AWS_ACCESS_KEY_ID", value: awsAccessKeyId });
@@ -884,6 +912,31 @@ export default function SetupPage() {
                   GitLab
                 </button>
                 <button
+                  onClick={() => setBitbucketEnabled((v) => !v)}
+                  className={cn(
+                    "flex items-center gap-2 px-4 py-2 rounded-md text-sm border transition-colors",
+                    bitbucketEnabled
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border text-text-muted hover:bg-bg-hover",
+                  )}
+                >
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                    <path
+                      fillRule="evenodd"
+                      d="M3 4h18l-2.4 13.2a1 1 0 0 1-1 .8H6.4a1 1 0 0 1-1-.8L3 4Zm4.5 4 1.1 5.5h6.8L16.5 8h-9Z"
+                    />
+                    <path
+                      d="m10 10 2 2 2-2"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                  Bitbucket
+                </button>
+                <button
                   onClick={() => setCodecommitEnabled((v) => !v)}
                   className={cn(
                     "flex items-center gap-2 px-4 py-2 rounded-md text-sm border transition-colors",
@@ -1039,6 +1092,63 @@ export default function SetupPage() {
                 </>
               )}
 
+              {/* Bitbucket form */}
+              {bitbucketEnabled && (
+                <>
+                  <a
+                    href="https://support.atlassian.com/bitbucket-cloud/docs/access-tokens/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-bg-hover text-text text-sm hover:bg-border transition-colors"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                    Bitbucket Access Token Documentation
+                  </a>
+                  <p className="text-text-muted text-sm">
+                    Use a repository, project, or workspace access token.
+                  </p>
+                  <div>
+                    <label className="block text-sm text-text-muted mb-1.5">Bitbucket Token</label>
+                    <input
+                      type="password"
+                      value={bitbucketToken}
+                      onChange={(e) => {
+                        setBitbucketToken(e.target.value);
+                        setBitbucketValidated(false);
+                        setBitbucketError("");
+                      }}
+                      onPaste={(e) => {
+                        e.preventDefault();
+                        const pasted = e.clipboardData.getData("text").trim();
+                        if (pasted) {
+                          setBitbucketToken(pasted);
+                          setBitbucketValidated(false);
+                          setBitbucketError("");
+                          setTimeout(() => validateBitbucket(pasted), 50);
+                        }
+                      }}
+                      placeholder="ATBB..."
+                      className="w-full px-3 py-2 rounded-md bg-bg border border-border text-sm focus:outline-none focus:border-primary"
+                    />
+                  </div>
+                  {bitbucketError && (
+                    <div className="flex items-center gap-2 text-error text-sm">
+                      <AlertCircle className="w-4 h-4" />
+                      {bitbucketError}
+                    </div>
+                  )}
+                  {bitbucketValidated && bitbucketUser && (
+                    <div className="flex items-center gap-2 text-success text-sm p-2 rounded-md bg-success/10">
+                      <CheckCircle className="w-4 h-4" />
+                      Authenticated as <strong>{bitbucketUser.login}</strong>
+                      {bitbucketUser.name && (
+                        <span className="text-text-muted">({bitbucketUser.name})</span>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+
               {/* CodeCommit form */}
               {codecommitEnabled && (
                 <>
@@ -1150,6 +1260,19 @@ export default function SetupPage() {
                       {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Validate GitLab"}
                     </button>
                   )}
+                  {bitbucketEnabled && !bitbucketValidated && (
+                    <button
+                      onClick={() => validateBitbucket()}
+                      disabled={loading || !bitbucketToken.trim()}
+                      className="flex items-center gap-2 px-4 py-2 rounded-md bg-bg-hover text-text text-sm hover:bg-border disabled:opacity-50"
+                    >
+                      {loading ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        "Validate Bitbucket"
+                      )}
+                    </button>
+                  )}
                   {codecommitEnabled && !awsValidated && (
                     <button
                       onClick={() => validateAws()}
@@ -1168,9 +1291,13 @@ export default function SetupPage() {
                     onClick={saveGitStep}
                     disabled={
                       loading ||
-                      (!githubEnabled && !gitlabEnabled && !codecommitEnabled) ||
+                      (!githubEnabled &&
+                        !gitlabEnabled &&
+                        !bitbucketEnabled &&
+                        !codecommitEnabled) ||
                       (githubEnabled && !githubAppConfigured && !githubValidated) ||
                       (gitlabEnabled && !gitlabValidated) ||
+                      (bitbucketEnabled && !bitbucketValidated) ||
                       (codecommitEnabled && !awsValidated)
                     }
                     className="flex items-center gap-2 px-5 py-2 rounded-md bg-primary text-white text-sm hover:bg-primary-hover disabled:opacity-50"

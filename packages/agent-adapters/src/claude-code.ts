@@ -109,9 +109,9 @@ export class ClaudeCodeAdapter implements AgentAdapter {
   }
 
   parseResult(exitCode: number, logs: string): AgentResult {
-    // Match both GitHub PR URLs and GitLab MR URLs (web URLs only, not API URLs)
+    // Match GitHub PR, GitLab MR, and Bitbucket PR URLs (web URLs only, not API URLs)
     const prMatch = logs.match(
-      /https:\/\/(?![\w.-]+\/api\/)[^\s"]+\/(?:pull\/\d+|-\/merge_requests\/\d+)/,
+      /https:\/\/(?![\w.-]+\/api\/)[^\s"]+\/(?:pull\/\d+|-\/merge_requests\/\d+|pull-requests\/\d+)/,
     );
     const costMatch = logs.match(/"total_cost_usd":\s*([\d.]+)/);
 

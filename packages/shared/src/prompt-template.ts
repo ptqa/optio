@@ -89,6 +89,24 @@ Implements task {{TASK_ID}}
 OPTIO_PR_EOF
 )" --remove-source-branch{{/if}}
    \`\`\`
+{{else}}{{#if GIT_PLATFORM_BITBUCKET}}
+   Push your branch first, then use the Bitbucket Cloud API to create a pull request:
+
+   \`\`\`
+   git push -u origin {{BRANCH_NAME}}
+   PR_DESCRIPTION_FILE=$(mktemp)
+   cat > "$PR_DESCRIPTION_FILE" <<'OPTIO_PR_EOF'
+{{#if ISSUE_NUMBER}}Closes #{{ISSUE_NUMBER}}{{else}}Implements task {{TASK_ID}}{{/if}}
+
+## What changed
+<Summarize the changes you made and why>
+
+## How to test
+<Describe how a reviewer can verify the changes>
+OPTIO_PR_EOF
+   jq -n --arg title "$(sed -n '1s/^# //p' "{{TASK_FILE}}")" --arg description "$(cat "$PR_DESCRIPTION_FILE")" --arg source "{{BRANCH_NAME}}" --arg destination "{{BASE_BRANCH}}" '{title: $title, description: $description, source: {branch: {name: $source}}, destination: {branch: {name: $destination}}, close_source_branch: true{{#if DRAFT_PR}}, draft: true{{/if}}}' | curl -sf -X POST -H "Authorization: Bearer \${BITBUCKET_TOKEN}" -H "Content-Type: application/json" -d @- "https://api.bitbucket.org/2.0/repositories/{{REPO_NAME}}/pullrequests" | jq -r '.links.html.href'
+   \`\`\`
+   Print the pull request URL emitted by the final \`jq\` command so the orchestrator can detect it.
 {{else}}
    Use the \`gh\` CLI to create a pull request:
    \`\`\`
@@ -112,7 +130,7 @@ Implements task {{TASK_ID}}
 OPTIO_PR_EOF
 )"{{/if}}{{#if DRAFT_PR}} --draft{{/if}}
    \`\`\`
-{{/if}}{{/if}}
+{{/if}}{{/if}}{{/if}}
 
 7. After opening the PR, you are done. Do NOT wait for CI checks or monitor them.
     The orchestration system handles CI monitoring and code review automatically.
@@ -141,8 +159,9 @@ concurrently on this same repository — each on its own branch. You MUST stay i
 - Do NOT look at, review, or interact with other PRs or branches.
 {{#if GIT_PLATFORM_CODECOMMIT}}- Do NOT run \`aws codecommit list-pull-requests\` to browse other PRs. You only need to create YOUR PR.
 {{else}}{{#if GIT_PLATFORM_GITLAB}}- Do NOT run \`glab mr list\` to browse merge requests. You only need to create YOUR MR.
+{{else}}{{#if GIT_PLATFORM_BITBUCKET}}- Do NOT list or browse other pull requests via the Bitbucket API. You only need to create YOUR PR.
 {{else}}- Do NOT run \`gh pr list\` to browse PRs. You only need to create YOUR PR.
-{{/if}}{{/if}}- If you see references to other branches named \`optio/task-*\`, ignore them — those belong to other agents.
+{{/if}}{{/if}}{{/if}}- If you see references to other branches named \`optio/task-*\`, ignore them — those belong to other agents.
 - Your working directory is your worktree. Do not navigate outside it.
 
 ## Guidelines
@@ -167,8 +186,9 @@ export const DEFAULT_REVIEW_PROMPT_TEMPLATE = `You are a code reviewer. You have
    \`\`\`
 {{#if GIT_PLATFORM_CODECOMMIT}}   git fetch origin && git diff origin/{{BASE_BRANCH}}...HEAD
 {{else}}{{#if GIT_PLATFORM_GITLAB}}   glab mr diff {{PR_NUMBER}}
+{{else}}{{#if GIT_PLATFORM_BITBUCKET}}   git fetch origin && git diff origin/{{BASE_BRANCH}}...HEAD
 {{else}}   gh pr diff {{PR_NUMBER}}
-{{/if}}{{/if}}   \`\`\`
+{{/if}}{{/if}}{{/if}}   \`\`\`
 
 2. Read the original task description to understand what this {{#if GIT_PLATFORM_GITLAB}}MR{{else}}PR{{/if}} is supposed to accomplish:
    \`\`\`
@@ -194,9 +214,11 @@ export const DEFAULT_REVIEW_PROMPT_TEMPLATE = `You are a code reviewer. You have
    - If changes are needed: post a comment with \`aws codecommit post-comment-for-pull-request ...\` whose content starts with \`**[CHANGES REQUESTED]**\`
 {{else}}{{#if GIT_PLATFORM_GITLAB}}   - If the code is good: \`glab mr approve {{PR_NUMBER}}\` then \`glab mr note {{PR_NUMBER}} --message "Your review summary"\`
    - If changes are needed: \`glab mr note {{PR_NUMBER}} --message "Changes requested: What needs fixing"\`
+{{else}}{{#if GIT_PLATFORM_BITBUCKET}}   - If the code is good: \`curl -sf -X POST -H "Authorization: Bearer \${BITBUCKET_TOKEN}" "https://api.bitbucket.org/2.0/repositories/{{REPO_NAME}}/pullrequests/{{PR_NUMBER}}/approve"\` then post a summary comment with \`jq -n --arg raw "Your review summary" '{content: {raw: $raw}}' | curl -sf -X POST -H "Authorization: Bearer \${BITBUCKET_TOKEN}" -H "Content-Type: application/json" -d @- "https://api.bitbucket.org/2.0/repositories/{{REPO_NAME}}/pullrequests/{{PR_NUMBER}}/comments"\`
+   - If changes are needed: \`curl -sf -X POST -H "Authorization: Bearer \${BITBUCKET_TOKEN}" "https://api.bitbucket.org/2.0/repositories/{{REPO_NAME}}/pullrequests/{{PR_NUMBER}}/request-changes"\` then post what needs fixing with \`jq -n --arg raw "What needs fixing" '{content: {raw: $raw}}' | curl -sf -X POST -H "Authorization: Bearer \${BITBUCKET_TOKEN}" -H "Content-Type: application/json" -d @- "https://api.bitbucket.org/2.0/repositories/{{REPO_NAME}}/pullrequests/{{PR_NUMBER}}/comments"\`
 {{else}}   - If the code is good: \`gh pr review {{PR_NUMBER}} --approve --body "Your review summary"\`
    - If changes are needed: \`gh pr review {{PR_NUMBER}} --request-changes --body "What needs fixing"\`
-{{/if}}{{/if}}
+{{/if}}{{/if}}{{/if}}
 
 6. After submitting your review, you are done. Do not review any other {{#if GIT_PLATFORM_GITLAB}}MRs{{else}}PRs{{/if}}.
 
@@ -221,8 +243,9 @@ export const DEFAULT_PR_REVIEW_PROMPT_TEMPLATE = `You are a code review assistan
 - You are reviewing ONLY {{#if GIT_PLATFORM_GITLAB}}MR !{{PR_NUMBER}}{{else}}PR #{{PR_NUMBER}}{{/if}}. Do not look at, review, or comment on any others.
 {{#if GIT_PLATFORM_CODECOMMIT}}- Do NOT submit the review to CodeCommit. Do NOT call \`aws codecommit update-pull-request-approval-state\` or \`post-comment-for-pull-request\`. Only write your findings to a file.
 {{else}}{{#if GIT_PLATFORM_GITLAB}}- Do NOT submit the review to GitLab. Do NOT run \`glab mr approve\` or \`glab mr note\`. Only write your findings to a file.
+{{else}}{{#if GIT_PLATFORM_BITBUCKET}}- Do NOT submit the review to Bitbucket. Do NOT call the Bitbucket approve, request-changes, or comments endpoints. Only write your findings to \`{{OUTPUT_PATH}}\`.
 {{else}}- Do NOT submit the review to GitHub. Do NOT run \`gh pr review\`. Only write your findings to a file.
-{{/if}}{{/if}}- Do NOT modify any code, create commits, push changes, or check out branches.
+{{/if}}{{/if}}{{/if}}- Do NOT modify any code, create commits, push changes, or check out branches.
 
 ## Steps
 
@@ -230,8 +253,9 @@ export const DEFAULT_PR_REVIEW_PROMPT_TEMPLATE = `You are a code review assistan
    \`\`\`
 {{#if GIT_PLATFORM_CODECOMMIT}}   git fetch origin && git diff origin/{{BASE_BRANCH}}...HEAD
 {{else}}{{#if GIT_PLATFORM_GITLAB}}   glab mr diff {{PR_NUMBER}}
+{{else}}{{#if GIT_PLATFORM_BITBUCKET}}   git fetch origin && git diff origin/{{BASE_BRANCH}}...HEAD
 {{else}}   gh pr diff {{PR_NUMBER}}
-{{/if}}{{/if}}   \`\`\`
+{{/if}}{{/if}}{{/if}}   \`\`\`
 
 2. Read the review context for background on this PR:
    \`\`\`
@@ -286,8 +310,9 @@ export const DEFAULT_PR_REVIEW_PROMPT_TEMPLATE = `You are a code review assistan
 - Review ONLY {{#if GIT_PLATFORM_GITLAB}}MR !{{PR_NUMBER}}{{else}}PR #{{PR_NUMBER}}{{/if}}. Nothing else.
 {{#if GIT_PLATFORM_CODECOMMIT}}- Do NOT run \`aws codecommit list-pull-requests\` or browse other PRs.
 {{else}}{{#if GIT_PLATFORM_GITLAB}}- Do NOT run \`glab mr list\` or browse other merge requests.
+{{else}}{{#if GIT_PLATFORM_BITBUCKET}}- Do NOT list or browse other pull requests via the Bitbucket API.
 {{else}}- Do NOT run \`gh pr list\` or browse other PRs.
-{{/if}}{{/if}}- Your working directory is your worktree. Do not navigate outside it.
+{{/if}}{{/if}}{{/if}}- Your working directory is your worktree. Do not navigate outside it.
 - **You have a limited turn budget.** Focus on the diff and task context. Do not exhaustively explore the entire codebase. Write the review JSON file BEFORE you run out of turns.
 `;
 

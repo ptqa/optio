@@ -1,11 +1,11 @@
-export type GitPlatformType = "github" | "gitlab" | "codecommit";
+export type GitPlatformType = "github" | "gitlab" | "codecommit" | "bitbucket";
 
 export interface RepoIdentifier {
   platform: GitPlatformType;
-  host: string; // "github.com", "gitlab.com", "gitlab.myco.com", "git-codecommit.us-east-1.amazonaws.com"
-  owner: string; // For CodeCommit: AWS region (e.g. "us-east-1") since CodeCommit has no owner concept
+  host: string; // "github.com", "gitlab.com", "bitbucket.org", "git-codecommit.us-east-1.amazonaws.com"
+  owner: string; // Bitbucket workspace slug; for CodeCommit, AWS region (e.g. "us-east-1")
   repo: string;
-  apiBaseUrl: string; // "https://api.github.com", "https://gitlab.com/api/v4", or AWS region for CodeCommit
+  apiBaseUrl: string; // GitHub/GitLab API URL, fixed "https://api.bitbucket.org/2.0", or AWS region for CodeCommit
 }
 
 export interface PullRequest {
@@ -90,7 +90,11 @@ export interface GitPlatform {
   getCIChecks(ri: RepoIdentifier, commitSha: string): Promise<CICheck[]>;
   getReviews(ri: RepoIdentifier, prNumber: number): Promise<Review[]>;
   getInlineComments(ri: RepoIdentifier, prNumber: number): Promise<InlineComment[]>;
-  getIssueComments(ri: RepoIdentifier, issueOrPrNumber: number): Promise<IssueComment[]>;
+  getIssueComments(
+    ri: RepoIdentifier,
+    issueOrPrNumber: number,
+    resource: "issue" | "pull_request",
+  ): Promise<IssueComment[]>;
 
   // PR/MR writes
   mergePullRequest(

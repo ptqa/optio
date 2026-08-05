@@ -85,7 +85,7 @@ export class OpenClawAdapter implements AgentAdapter {
 
   parseResult(exitCode: number, logs: string): AgentResult {
     const prMatch = logs.match(
-      /https:\/\/(?![\w.-]+\/api\/)[^\s"]+\/(?:pull\/\d+|-\/merge_requests\/\d+)/,
+      /https:\/\/(?![\w.-]+\/api\/)[^\s"]+\/(?:pull\/\d+|-\/merge_requests\/\d+|pull-requests\/\d+)/,
     );
     const { costUsd, errorMessage, hasError, summary, inputTokens, outputTokens, model } =
       this.parseLogs(logs);

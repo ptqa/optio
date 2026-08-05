@@ -74,6 +74,14 @@ function pipelineCurrentIndex(state: string): number {
   return PIPELINE_STEPS.findIndex((s) => s.key === state);
 }
 
+function isBitbucketCloudUrl(url: string): boolean {
+  try {
+    return new URL(url).hostname.toLowerCase() === "bitbucket.org";
+  } catch {
+    return false;
+  }
+}
+
 export default function ReviewDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const _router = useRouter();
@@ -358,7 +366,12 @@ export default function ReviewDetailPage({ params }: { params: Promise<{ id: str
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1 hover:text-primary"
             >
-              View on {review.prUrl.includes("gitlab") ? "GitLab" : "GitHub"}
+              View on{" "}
+              {isBitbucketCloudUrl(review.prUrl)
+                ? "Bitbucket"
+                : review.prUrl.includes("gitlab")
+                  ? "GitLab"
+                  : "GitHub"}
               <ExternalLink className="w-3 h-3" />
             </a>
           </>
