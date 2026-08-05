@@ -7,6 +7,7 @@ import { isSubscriptionAvailable } from "../services/auth-service.js";
 import { isGitHubAppConfigured, getInstallationToken } from "../services/github-app-service.js";
 import { isAuthDisabled } from "../services/oauth/index.js";
 import { ErrorResponseSchema } from "../schemas/common.js";
+import { normalizeRepoUrl } from "@optio/shared";
 
 const tokenSchema = z.object({ token: z.string().min(1) }).describe("Body with a required token");
 const gitlabTokenSchema = z
@@ -809,9 +810,13 @@ export async function setupRoutes(rawApp: FastifyInstance) {
         const data = (await res.json()) as { values: BitbucketRepo[] };
         const repos = data.values.map((r) => ({
           fullName: r.full_name,
-          cloneUrl:
+          // Bitbucket embeds the access token as userinfo in the HTTPS clone
+          // link — normalize it away so the secret never reaches the browser
+          // or the database.
+          cloneUrl: normalizeRepoUrl(
             r.links.clone?.find((link) => link.name === "https")?.href ??
-            `https://bitbucket.org/${r.full_name}.git`,
+              `https://bitbucket.org/${r.full_name}.git`,
+          ),
           htmlUrl: r.links.html.href,
           defaultBranch: r.mainbranch?.name ?? "main",
           isPrivate: r.is_private,

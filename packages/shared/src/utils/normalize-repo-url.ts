@@ -11,8 +11,10 @@
  *   - github.com/foo/bar
  *   - http://github.com/foo/bar
  *   - HTTPS://GitHub.com/Foo/Bar
+ *   - https://token@bitbucket.org/foo/bar.git (userinfo stripped)
  *
- * Canonical form: https://github.com/foo/bar (lowercase host, no trailing slash, no .git)
+ * Canonical form: https://github.com/foo/bar (lowercase host, no trailing slash, no .git,
+ * no embedded credentials)
  */
 export function normalizeRepoUrl(url: string): string {
   let u = url.trim();
@@ -36,6 +38,11 @@ export function normalizeRepoUrl(url: string): string {
   if (!u.startsWith("https://")) {
     u = `https://${u}`;
   }
+
+  // Strip embedded credentials: https://user[:pass]@host/... → https://host/...
+  // Bitbucket's clone links carry the access token as the userinfo component,
+  // which would otherwise be persisted and break exact-match repo lookups.
+  u = u.replace(/^https:\/\/[^/@]*@/, "https://");
 
   // Strip trailing slashes, then .git suffix (order matters for "foo.git/")
   u = u.replace(/\/+$/, "");

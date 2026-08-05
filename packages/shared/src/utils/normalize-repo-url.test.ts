@@ -31,4 +31,17 @@ describe("normalizeRepoUrl", () => {
   it("preserves different hosts", () => {
     expect(normalizeRepoUrl("https://gitlab.com/foo/bar.git")).toBe("https://gitlab.com/foo/bar");
   });
+
+  it.each([
+    ["https://x-token-auth@bitbucket.org/foo/bar.git", "Bitbucket token clone link"],
+    ["https://ATBBsecrettoken@bitbucket.org/foo/bar", "Bitbucket access token as user"],
+    ["https://user:password@bitbucket.org/foo/bar.git", "user:password"],
+    ["x-token-auth@bitbucket.org/foo/bar.git", "userinfo without scheme"],
+  ])("strips embedded credentials from %s (%s)", (input) => {
+    expect(normalizeRepoUrl(input)).toBe("https://bitbucket.org/foo/bar");
+  });
+
+  it("keeps @ inside the repo path", () => {
+    expect(normalizeRepoUrl("https://github.com/foo/@bar")).toBe("https://github.com/foo/@bar");
+  });
 });
