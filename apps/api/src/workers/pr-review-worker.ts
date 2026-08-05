@@ -42,6 +42,7 @@ import {
   retrieveSecretWithFallback,
 } from "../services/secret-service.js";
 import { isGitHubAppConfigured } from "../services/github-app-service.js";
+import { requiredGitSecretsForRepo } from "../services/git-token-service.js";
 import { getCredentialSecret } from "../services/credential-secret-service.js";
 import { publishEvent } from "../services/event-bus.js";
 import { getBullMQConnectionOptions } from "../services/redis-config.js";
@@ -426,7 +427,7 @@ export function startPrReviewWorker() {
         const secretNames = [
           ...new Set([
             ...agentConfig.requiredSecrets,
-            ...(!isGitHubAppConfigured() ? ["GITHUB_TOKEN"] : []),
+            ...requiredGitSecretsForRepo(review.repoUrl),
           ]),
         ];
         const resolvedSecrets = await resolveSecretsForTask(
@@ -466,7 +467,10 @@ export function startPrReviewWorker() {
         if (repoConfig.extraPackages) allEnv.OPTIO_EXTRA_PACKAGES = repoConfig.extraPackages;
         if (repoConfig.setupCommands) allEnv.OPTIO_SETUP_COMMANDS = repoConfig.setupCommands;
 
-        if (claudeAuthMode === "oauth-token") {
+        // Claude auth is only required when Claude is the agent actually
+        // running — a Codex/Gemini/OpenCode review must not be blocked on a
+        // stale global CLAUDE_AUTH_MODE.
+        if (agentType === "claude-code" && claudeAuthMode === "oauth-token") {
           const oauthToken = await retrieveSecretWithFallback(
             "CLAUDE_CODE_OAUTH_TOKEN",
             "global",

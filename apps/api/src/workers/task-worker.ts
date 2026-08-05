@@ -35,6 +35,7 @@ import {
 } from "../services/secret-service.js";
 import { getPromptTemplate } from "../services/prompt-template-service.js";
 import { isGitHubAppConfigured } from "../services/github-app-service.js";
+import { requiredGitSecretsForRepo } from "../services/git-token-service.js";
 import { getCredentialSecret } from "../services/credential-secret-service.js";
 import { subscribeToTaskMessages } from "../services/task-message-bus.js";
 import * as messageService from "../services/task-message-service.js";
@@ -603,13 +604,11 @@ export function startTaskWorker() {
           ).toString("base64");
         }
 
-        // Resolve secrets (workspace → repo-scoped → global fallback)
-        // Only require GITHUB_TOKEN when GitHub App auth is not configured
+        // Resolve secrets (workspace → repo-scoped → global fallback).
+        // The git credential requirement is platform-specific — a Bitbucket or
+        // GitLab repo must not be blocked on a missing GITHUB_TOKEN.
         const secretNames = [
-          ...new Set([
-            ...agentConfig.requiredSecrets,
-            ...(!isGitHubAppConfigured() ? ["GITHUB_TOKEN"] : []),
-          ]),
+          ...new Set([...agentConfig.requiredSecrets, ...requiredGitSecretsForRepo(task.repoUrl)]),
         ];
         const taskUserId = task.createdBy ?? null;
         const resolvedSecrets = await resolveSecretsForTask(
@@ -672,8 +671,13 @@ export function startTaskWorker() {
           allEnv.OPTIO_SETUP_COMMANDS = repoConfig.setupCommands;
         }
 
+        // Claude auth is only required when Claude is the agent actually
+        // running — a Codex/Gemini/OpenCode task must not be blocked on a
+        // stale global CLAUDE_AUTH_MODE.
+        const needsClaudeAuth = task.agentType === "claude-code";
+
         // For max-subscription mode, fetch the OAuth token from the auth proxy
-        if (claudeAuthMode === "max-subscription") {
+        if (needsClaudeAuth && claudeAuthMode === "max-subscription") {
           const { getClaudeAuthToken } = await import("../services/auth-service.js");
           const authResult = getClaudeAuthToken();
           if (authResult.available && authResult.token) {
@@ -687,7 +691,7 @@ export function startTaskWorker() {
         }
 
         // For oauth-token mode, read the token from the secrets store
-        if (claudeAuthMode === "oauth-token") {
+        if (needsClaudeAuth && claudeAuthMode === "oauth-token") {
           // Pre-flight: check the cached validation from the background worker
           // to fail fast before wasting ~10s on pod provisioning + worktree setup
           try {

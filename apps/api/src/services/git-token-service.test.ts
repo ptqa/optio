@@ -20,7 +20,11 @@ vi.mock("./git-platform/index.js", () => ({
   createGitPlatform: mocks.createGitPlatform,
 }));
 
-import { getGitPlatformForRepo, getGitToken } from "./git-token-service.js";
+import {
+  getGitPlatformForRepo,
+  getGitToken,
+  requiredGitSecretsForRepo,
+} from "./git-token-service.js";
 
 const originalEnv = { ...process.env };
 
@@ -144,5 +148,47 @@ describe("getGitPlatformForRepo", () => {
     expect(result.ri.owner).toBe("acme");
     expect(result.ri.repo).toBe("widgets");
     expect(mocks.createGitPlatform).toHaveBeenCalledWith("bitbucket", "bitbucket-token");
+  });
+});
+
+describe("requiredGitSecretsForRepo", () => {
+  beforeEach(() => {
+    delete process.env.GITHUB_APP_ID;
+    delete process.env.GITHUB_APP_PRIVATE_KEY;
+    delete process.env.BITBUCKET_TOKEN;
+    delete process.env.GITLAB_TOKEN;
+  });
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+  });
+
+  it("requires BITBUCKET_TOKEN — not GITHUB_TOKEN — for a Bitbucket repo", () => {
+    expect(requiredGitSecretsForRepo("https://bitbucket.org/acme/widgets")).toEqual([
+      "BITBUCKET_TOKEN",
+    ]);
+  });
+
+  it("requires GITLAB_TOKEN for a GitLab repo", () => {
+    expect(requiredGitSecretsForRepo("https://gitlab.com/acme/widgets")).toEqual(["GITLAB_TOKEN"]);
+  });
+
+  it("requires GITHUB_TOKEN for a GitHub repo without a GitHub App", () => {
+    expect(requiredGitSecretsForRepo("https://github.com/acme/widgets")).toEqual(["GITHUB_TOKEN"]);
+  });
+
+  it("requires nothing for CodeCommit", () => {
+    expect(
+      requiredGitSecretsForRepo("https://git-codecommit.us-east-1.amazonaws.com/v1/repos/widgets"),
+    ).toEqual([]);
+  });
+
+  it("requires nothing when the token is already in the environment", () => {
+    process.env.BITBUCKET_TOKEN = "from-env";
+    expect(requiredGitSecretsForRepo("https://bitbucket.org/acme/widgets")).toEqual([]);
+  });
+
+  it("requires nothing for an unparseable URL", () => {
+    expect(requiredGitSecretsForRepo("not a url")).toEqual([]);
   });
 });

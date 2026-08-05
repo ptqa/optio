@@ -393,8 +393,13 @@ export function startWorkflowWorker() {
           if (apiKey) env.ANTHROPIC_API_KEY = apiKey as string;
         }
 
+        // Claude auth is only required when Claude is the agent actually
+        // running — a Codex/Gemini/OpenCode job must not be blocked on a
+        // stale global CLAUDE_AUTH_MODE.
+        const needsClaudeAuth = workflow.agentRuntime === "claude-code";
+
         // For oauth-token mode, resolve the OAuth token
-        if (claudeAuthMode === "oauth-token") {
+        if (needsClaudeAuth && claudeAuthMode === "oauth-token") {
           const oauthToken = await retrieveSecretWithFallback(
             "CLAUDE_CODE_OAUTH_TOKEN",
             "global",
@@ -411,7 +416,7 @@ export function startWorkflowWorker() {
         }
 
         // For max-subscription mode, fetch from auth service
-        if (claudeAuthMode === "max-subscription") {
+        if (needsClaudeAuth && claudeAuthMode === "max-subscription") {
           const { getClaudeAuthToken } = await import("../services/auth-service.js");
           const authResult = getClaudeAuthToken();
           if (authResult.available && authResult.token) {

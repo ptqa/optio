@@ -1,6 +1,7 @@
 import type { GitPlatform, GitPlatformType, RepoIdentifier } from "@optio/shared";
 import { parseRepoUrl } from "@optio/shared";
 import { getGitHubToken } from "./github-token-service.js";
+import { isGitHubAppConfigured } from "./github-app-service.js";
 import { retrieveSecretWithFallback } from "./secret-service.js";
 import { getCodeCommitCredentials } from "./codecommit-credential-service.js";
 import { createGitPlatform } from "./git-platform/index.js";
@@ -86,6 +87,33 @@ export async function getGitToken(
   }
 
   throw new Error(`Unsupported git platform: ${platform}`);
+}
+
+/**
+ * Secret names a task/review pod must have resolved before it can talk to the
+ * repo's git platform. Platform-specific: a Bitbucket repo needs
+ * BITBUCKET_TOKEN, not GITHUB_TOKEN. Returns an empty list when the platform
+ * has another credential path (GitHub App, CodeCommit workload identity) or
+ * when the token is already supplied through the process environment, so the
+ * up-front check never blocks a working configuration.
+ */
+export function requiredGitSecretsForRepo(repoUrl: string): string[] {
+  const platform = parseRepoUrl(repoUrl)?.platform;
+
+  switch (platform) {
+    case "github":
+      return isGitHubAppConfigured() ? [] : ["GITHUB_TOKEN"];
+    case "gitlab":
+      return process.env.GITLAB_TOKEN ? [] : ["GITLAB_TOKEN"];
+    case "bitbucket":
+      return process.env.BITBUCKET_TOKEN ? [] : ["BITBUCKET_TOKEN"];
+    // CodeCommit authenticates via AWS keys, IRSA, or an instance profile —
+    // there is no single secret name to require here.
+    case "codecommit":
+      return [];
+    default:
+      return [];
+  }
 }
 
 /**
