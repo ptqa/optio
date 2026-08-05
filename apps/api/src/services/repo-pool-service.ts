@@ -768,9 +768,16 @@ async function createRepoPodViaStatefulSet(
       ];
     }
 
-    // Ensure StatefulSet exists and scale to needed replica count
-    const homePvcSize = process.env.OPTIO_HOME_PVC_SIZE ?? "10Gi";
-    const homePvcStorageClass = process.env.OPTIO_HOME_PVC_STORAGE_CLASS || undefined;
+    // Ensure StatefulSet exists and scale to needed replica count.
+    // OPTIO_AGENT_PVC_* is the name the Helm chart renders from
+    // `agent.pvc.{storageClass,size}`. The OPTIO_HOME_PVC_* aliases are kept
+    // for anyone who set them directly against the StatefulSet migration.
+    const homePvcSize =
+      process.env.OPTIO_AGENT_PVC_SIZE || process.env.OPTIO_HOME_PVC_SIZE || "10Gi";
+    const homePvcStorageClass =
+      process.env.OPTIO_AGENT_PVC_STORAGE_CLASS ||
+      process.env.OPTIO_HOME_PVC_STORAGE_CLASS ||
+      undefined;
 
     logger.info(
       {
