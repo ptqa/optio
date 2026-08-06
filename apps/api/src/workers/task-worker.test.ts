@@ -4,6 +4,7 @@ import {
   buildInitialClaudeStreamMessage,
   classifyRunOutcome,
   inferExitCode,
+  harnessErrorFromLogs,
   shouldEscalateNoPr,
 } from "./task-worker.js";
 import { ClaudeCodeAdapter } from "@optio/agent-adapters";
@@ -281,6 +282,32 @@ describe("buildInitialClaudeStreamMessage", () => {
 });
 
 describe("inferExitCode", () => {
+  describe("harness failures", () => {
+    // The exec harness aborts before the agent starts, so agent-specific
+    // patterns can never match. Without the marker check these scored 0 and
+    // the run was recorded as a success with empty output.
+    const repoTimeout =
+      "[optio] Waiting for repo to be ready...\n" +
+      "[optio] ERROR: repo not ready after 120s (increase OPTIO_REPO_INIT_TIMEOUT_MS to extend)\n";
+
+    it.each(["claude-code", "codex", "opencode", "copilot", "gemini", "openclaw"])(
+      "returns 1 for %s when the harness aborted",
+      (agentType) => {
+        expect(inferExitCode(agentType, repoTimeout)).toBe(1);
+      },
+    );
+
+    it("extracts the actionable harness message", () => {
+      expect(harnessErrorFromLogs(repoTimeout)).toBe(
+        "[optio] ERROR: repo not ready after 120s (increase OPTIO_REPO_INIT_TIMEOUT_MS to extend)",
+      );
+    });
+
+    it("returns null when the harness did not fail", () => {
+      expect(harnessErrorFromLogs('{"type":"assistant","content":"All done"}\n')).toBeNull();
+    });
+  });
+
   describe("claude-code", () => {
     it("returns 0 for clean logs", () => {
       const logs = '{"type":"assistant","content":"All done"}\n';

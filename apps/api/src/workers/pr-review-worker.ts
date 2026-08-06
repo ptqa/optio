@@ -56,6 +56,7 @@ import {
   buildAgentCommand,
   buildInitialClaudeStreamMessage,
   inferExitCode,
+  harnessErrorFromLogs,
 } from "./task-worker.js";
 
 const connectionOpts = getBullMQConnectionOptions();
@@ -669,6 +670,14 @@ export function startPrReviewWorker() {
         // ── Parse result ────────────────────────────────────────
         const inferredExitCode = inferExitCode(agentType, allLogs);
         const result = adapter.parseResult(inferredExitCode, allLogs);
+
+        // The harness aborted before the agent ran. Adapters can only report
+        // "Exit code: 1" here, so surface the actionable line instead.
+        const harnessError = harnessErrorFromLogs(allLogs);
+        if (harnessError) {
+          result.success = false;
+          result.error = harnessError;
+        }
 
         const costFields: Record<string, unknown> = {
           resultSummary: result.summary,

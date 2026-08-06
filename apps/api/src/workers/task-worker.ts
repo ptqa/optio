@@ -1083,6 +1083,14 @@ export function startTaskWorker() {
         const inferredExitCode = inferExitCode(task.agentType, allLogs);
         const result = adapter.parseResult(inferredExitCode, allLogs);
 
+        // The harness aborted before the agent ran. Adapters can only report
+        // "Exit code: 1" here, so surface the actionable line instead.
+        const harnessError = harnessErrorFromLogs(allLogs);
+        if (harnessError) {
+          result.success = false;
+          result.error = harnessError;
+        }
+
         // Override a nominally-successful result if the agent emitted an auth
         // failure mid-run. Many agent CLIs catch 401s internally and exit 0,
         // which would otherwise mark the task as completed despite no useful
@@ -1865,8 +1873,33 @@ export function shouldEscalateNoPr(opts: {
   return true;
 }
 
+/**
+ * Marker emitted by Optio's own exec harness (repo-pool-service,
+ * workflow-pool-service, persistent-agent-pool-service, agent-entrypoint.sh)
+ * immediately before it exits non-zero. These failures happen before the agent
+ * ever starts, so no agent-specific error pattern can match them.
+ */
+const HARNESS_ERROR_MARKER = "[optio] ERROR:";
+
+/**
+ * The harness error line, if the run died before the agent started. Adapters
+ * can only report "Exit code: 1" for these, which hides the actionable part
+ * (e.g. "increase OPTIO_REPO_INIT_TIMEOUT_MS to extend").
+ */
+export function harnessErrorFromLogs(logs: string): string | null {
+  const line = logs.split("\n").find((l) => l.includes(HARNESS_ERROR_MARKER));
+  return line ? line.slice(line.indexOf(HARNESS_ERROR_MARKER)).trim() : null;
+}
+
 /** Infer exit code from agent logs based on agent-specific error patterns */
 export function inferExitCode(agentType: string, logs: string): number {
+  // The harness aborted before handing control to the agent (repo clone
+  // timeout, missing Vertex config, ...). The real exit code is not available
+  // here — the exec streams stdout only — so the marker is the signal. Checked
+  // for every agent type, ahead of the per-agent heuristics, because those
+  // only know how to recognize agent output and would score this a success.
+  if (logs.includes(HARNESS_ERROR_MARKER)) return 1;
+
   switch (agentType) {
     case "codex": {
       // Codex: look for error events in JSON output or OpenAI-specific failures

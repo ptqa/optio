@@ -92,6 +92,11 @@ vi.mock("../db/schema.js", () => ({
     repoUrl: "repos.repoUrl",
     stallThresholdMs: "repos.stallThresholdMs",
   },
+  prReviewRuns: {
+    id: "prReviewRuns.id",
+    state: "prReviewRuns.state",
+    updatedAt: "prReviewRuns.updatedAt",
+  },
 }));
 
 // ── Service mocks ──────────────────────────────────────────────────────────
@@ -485,6 +490,7 @@ describe("repo-cleanup-worker", () => {
       selectResults = [
         [pod], // repoPods
         [], // task lookup for orphan worktree (no task found)
+        [], // pr_review_runs lookup (no run found either — genuine orphan)
         [], // soft stall detection: running tasks
         [], // stale tasks
       ];
@@ -503,6 +509,28 @@ describe("repo-cleanup-worker", () => {
       // Should have called exec twice — list and cleanup
       expect(mockRtExec).toHaveBeenCalledTimes(2);
       expect(cleanSession.close).toHaveBeenCalled();
+    });
+
+    it("preserves the worktree of a running PR review", async () => {
+      // PR review worktrees are named after pr_review_runs.id, which never
+      // appears in `tasks`. Treating them as orphans deleted the worktree out
+      // from under a live review.
+      const pod = makePod({ state: "ready" });
+      selectResults = [
+        [pod], // repoPods
+        [], // task lookup — no task, as expected for a review run
+        [{ state: "running", updatedAt: new Date() }], // pr_review_runs lookup
+        [], // soft stall detection: running tasks
+        [], // stale tasks
+      ];
+
+      mockRtStatus.mockResolvedValue({ state: "running" });
+      mockRtExec.mockResolvedValueOnce(makeExecSession("pr-review-run-id\n"));
+
+      await processorFn();
+
+      // Only the listing exec — no cleanup command.
+      expect(mockRtExec).toHaveBeenCalledTimes(1);
     });
 
     it("preserves active worktrees", async () => {

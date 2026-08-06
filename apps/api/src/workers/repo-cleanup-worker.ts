@@ -1,7 +1,7 @@
 import { Queue, Worker } from "bullmq";
 import { eq, sql } from "drizzle-orm";
 import { db } from "../db/client.js";
-import { repoPods, podHealthEvents, tasks, taskEvents, repos } from "../db/schema.js";
+import { repoPods, podHealthEvents, tasks, taskEvents, repos, prReviewRuns } from "../db/schema.js";
 import {
   cleanupIdleRepoPods,
   updateWorktreeState,
@@ -252,7 +252,27 @@ export function startRepoCleanupWorker() {
               .where(eq(tasks.id, taskId));
 
             if (!task) {
-              // No task found — orphan worktree, clean it up
+              // Repo pods are shared by the task worker (worktree per tasks.id)
+              // and the PR review worker (worktree per pr_review_runs.id), so a
+              // missing `tasks` row does not mean the worktree is abandoned.
+              // Deleting a live review's worktree mid-run left its shell in a
+              // directory with no .git, which surfaced as
+              // "fatal: --local can only be used inside a git repository" and
+              // killed the run (set -e) before the agent ever started.
+              const [reviewRun] = await db
+                .select({ state: prReviewRuns.state, updatedAt: prReviewRuns.updatedAt })
+                .from(prReviewRuns)
+                .where(eq(prReviewRuns.id, taskId));
+
+              if (reviewRun) {
+                const runActive = ["queued", "provisioning", "running"].includes(reviewRun.state);
+                const runAge = reviewRun.updatedAt
+                  ? Date.now() - new Date(reviewRun.updatedAt).getTime()
+                  : 0;
+                if (runActive || runAge <= WORKTREE_GRACE_MS) continue;
+              }
+
+              // Genuinely unknown id — orphan worktree, clean it up
               try {
                 const cleanSession = await rt.exec(
                   { id: pod.podId ?? pod.podName, name: pod.podName },
